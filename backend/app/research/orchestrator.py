@@ -2,8 +2,9 @@
 
 One async ``run_research(request, deps)`` drives the deterministic pipeline:
 
-normalize input -> Exa identity search -> identity gate -> Exa searches 2-4
-(concurrency <= 2, failures isolated) -> optional MoltSets enrichment ->
+normalize input -> Exa identity search -> identity gate -> bounded identity
+fallback (search 1b, only when the domain yields no pages) -> Exa searches
+2-4 (concurrency <= 2, failures isolated) -> optional MoltSets enrichment ->
 normalization -> status/data-mode computation -> validated ``Report``.
 
 Identity resolution rules (unit-tested, docstring is binding):
@@ -24,6 +25,18 @@ Identity resolution rules (unit-tested, docstring is binding):
 - Name only: take the top 5 hits that name-match. ``resolved`` iff >=1 such
   hit exists AND all share one compare_key. Multiple hosts -> ambiguous;
   zero matching hits -> unresolved.
+- Identity fallback (search 1b): when a domain was supplied and the primary
+  identity search found no pages on it (note "no evidence for this domain"),
+  exactly one broader fallback search runs — same subject and
+  ``include_domains``, ``category`` omitted — and its result goes through
+  the SAME gate (no acceptance rule is loosened). A ``ProviderError`` from
+  the fallback raises ``ResearchUnavailable`` with the provider code,
+  exactly like a failed primary identity search.
+- Search budget: at most four logical Exa searches per report. When the
+  fallback (1b) runs and resolves, the leadership search is skipped
+  (identity + fallback + overview + growth = 4); when it runs and still
+  finds nothing, the run ends after 2 searches. ``providers.exa.note``
+  discloses the fallback in both cases.
 - Resolved ``company_name``/``domain`` are ``verified`` and carry the
   supporting hit(s) as sources. The user's input alone is NEVER a source.
   The name comes from the supporting hit's title, cleaned minimally (text
@@ -71,6 +84,7 @@ from app.providers.types import (
 from app.research.queries import (
     SearchIdentity,
     growth_query,
+    identity_fallback_query,
     identity_query,
     leadership_query,
     overview_query,
@@ -373,6 +387,35 @@ async def run_research(request: ResearchRequest, deps: ResearchDeps) -> Report:
 
     resolution = resolve_identity(request.company_name, domain, identity_result, clock)
 
+    # -- bounded identity fallback (search 1b) --------------------------------
+    # Only a domain whose pages the company-category search could not see gets
+    # the broader, category-less retry; the gate itself is never loosened.
+    fallback_used = False
+    if (
+        domain is not None
+        and not resolution.resolved
+        and resolution.note == "no evidence for this domain"
+    ):
+        fallback_used = True
+        try:
+            fallback_result = await exa.search(
+                identity_fallback_query(request.company_name, domain)
+            )
+        except ProviderError as exc:
+            # Same rule as a failed primary identity search: without identity
+            # evidence no report can be produced.
+            logger.info(
+                "identity fallback search failed code=%s request_id=%s",
+                exc.code,
+                deps.request_id,
+            )
+            raise ResearchUnavailable(code=exc.code, message=exc.message) from exc
+        exa_calls += fallback_result.calls
+        exa_mock = exa_mock or fallback_result.mock
+        exa_usage = fallback_result.usage if fallback_result.usage is not None else exa_usage
+        identity_result = fallback_result
+        resolution = resolve_identity(request.company_name, domain, fallback_result, clock)
+
     # -- unresolved identity -> early report, no enrichment ------------------
     if not resolution.resolved or resolution.domain_key is None:
         exa_summary = ProviderSummary(
@@ -380,6 +423,12 @@ async def run_research(request: ResearchRequest, deps: ResearchDeps) -> Report:
             mock=exa_mock,
             calls=exa_calls,
             usage=exa_usage,
+            note=(
+                "The identity search and a broader fallback search both "
+                "returned no pages on this domain."
+                if fallback_used
+                else None
+            ),
         )
         moltsets_summary = _moltsets_skipped_summary(deps)
         report = Report(
@@ -422,18 +471,22 @@ async def run_research(request: ResearchRequest, deps: ResearchDeps) -> Report:
         async with semaphore:
             return await exa.search(request_obj)
 
+    stage_plan: list[tuple[Stage, ExaSearchRequest]] = [
+        ("overview", overview_query(identity, request.research_objective)),
+        ("growth", growth_query(identity, clock())),
+    ]
+    if not fallback_used:
+        stage_plan.append(("leadership", leadership_query(identity)))
+
     stage_results = await asyncio.gather(
-        _search(overview_query(identity, request.research_objective)),
-        _search(growth_query(identity, clock())),
-        _search(leadership_query(identity)),
+        *(_search(request_obj) for _, request_obj in stage_plan),
         return_exceptions=True,
     )
 
     overview: ExaSearchResult | None = None
     growth: ExaSearchResult | None = None
     leadership: ExaSearchResult | None = None
-    stages: tuple[Stage, ...] = ("overview", "growth", "leadership")
-    for stage, outcome in zip(stages, stage_results, strict=True):
+    for (stage, _), outcome in zip(stage_plan, stage_results, strict=True):
         if isinstance(outcome, ProviderError):
             outcome.with_stage(stage)
             errors.append(outcome.to_report_error(deps.request_id))
@@ -519,7 +572,18 @@ async def run_research(request: ResearchRequest, deps: ResearchDeps) -> Report:
         exa_state = "error"
     else:
         exa_state = "partial"
-    exa_summary = ProviderSummary(state=exa_state, mock=exa_mock, calls=exa_calls, usage=exa_usage)
+    exa_summary = ProviderSummary(
+        state=exa_state,
+        mock=exa_mock,
+        calls=exa_calls,
+        usage=exa_usage,
+        note=(
+            "Identity confirmed via a broader fallback search; the leadership "
+            "search was skipped to stay within the four-search budget."
+            if fallback_used
+            else None
+        ),
+    )
 
     report = Report(
         data_mode="live",  # placeholder, recomputed below
