@@ -450,21 +450,3 @@ Every response carries `X-Request-ID` and `Cache-Control: no-store`.
 5. Optional live run — only with an approved key and free credits: set `EXA_API_KEY`
    (and optionally `MOLTSETS_API_KEY`), remove the mock env vars, restart the backend,
    and run **one** search.
-
-### What has not been live-tested
-
-- **One live Exa call** (2026-10-16): a single approved identity search
-  (`"Stripe company"`, scoped to `stripe.com`) through the backend adapter — HTTP 200,
-  5 hits, one call, no retry, ≈ $0.007. The full four-search report path remains
-  fixture-tested; the mock path is locally tested.
-- **The identity fallback (search 1b) is fixture-tested only.** The bounded fallback
-  path has not been exercised against live Exa — whether a category-less,
-  domain-scoped search resolves a domain the company index misses is unconfirmed until
-  an approved smoke test.
-- **No live MoltSets call** has been made. Signup/access is unconfirmed; the adapter
-  is fixture-tested and exercised via `MOLTSETS_MODE=mock` only.
-- Remaining provider behavior (error codes, retry metadata, other query types and
-  response-shape variants) stays **docs-verified (assumptions)** until a deliberate,
-  approved smoke test exercises it.
-- The manual browser journey (keyboard pass, 320 px layout) is tracked as a separate
-  acceptance step; the automated UI tests and the local mock-mode API flow pass.
