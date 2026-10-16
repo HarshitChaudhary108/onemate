@@ -85,10 +85,18 @@ docs/       spec.md, tech.md, implementation-plan.md
 
 ## Quickstart
 
-Prerequisites: **Python 3.11+** (verified with 3.13.5) and **Node.js 20+**
-(verified with Node 24.19.0 / npm 11.17.0).
+No API keys are needed: the backend runs in **mock mode** against synthetic fixtures,
+and the frontend works once both servers are up.
 
-### Backend (`backend/`)
+Requirements: **Python 3.11+** (verified with 3.13.5) and **Node.js 20+** (verified
+with Node 24.19.0 / npm 11.17.0).
+
+```bash
+git clone https://github.com/HarshitChaudhary108/onemate.git
+cd onemate
+```
+
+### 1. Backend — create the environment and install
 
 ```powershell
 cd backend
@@ -98,45 +106,77 @@ python -m venv .venv
 # source .venv/bin/activate          # macOS / Linux
 
 pip install -e ".[dev]"
-ruff format --check .
-ruff check .
-mypy app
-pytest
-uvicorn app.main:app --port 8000     # GET http://localhost:8000/health -> {"status":"ok"}
 ```
 
-### Frontend (`frontend/`)
+### 2. Backend — create `.env` and enable mock mode
+
+```powershell
+copy .env.example .env               # Windows
+# cp .env.example .env               # macOS / Linux / Git Bash
+```
+
+Open `backend/.env` and set:
+
+```ini
+EXA_MODE=mock
+MOLTSETS_MODE=mock
+```
+
+That is the whole configuration for a keyless demo. Mock mode is explicit and always
+disclosed (`mock: true` on sources, `data_mode: "mock"`, "Mock / sample data" banner).
+To use the real APIs instead, keep `EXA_MODE=live` and add your keys — see
+[Mock vs live mode](#mock-vs-live-mode).
+
+### 3. Backend — start the server
+
+```powershell
+uvicorn app.main:app --port 8000
+```
+
+Leave it running. Verify once: <http://localhost:8000/health> → `{"status":"ok"}`.
+
+### 4. Frontend — install and create `.env`
+
+Open a second terminal at the project root (keep the backend running):
 
 ```powershell
 cd frontend
 npm install
+copy .env.example .env               # Windows
+# cp .env.example .env               # macOS / Linux / Git Bash
+```
+
+`frontend/.env` sets `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` — how the UI
+finds the backend (there is no built-in default). Change it only if your backend runs
+elsewhere.
+
+### 5. Frontend — start the dev server
+
+```powershell
+npm run dev
+```
+
+Open <http://localhost:3000>, submit `example-robotics.test`, and you should see the
+full mock report with the "Mock / sample data" banner. More built-in scenarios are
+listed under [Mock vs live mode](#mock-vs-live-mode). If the UI reports "Could not
+reach the research service", check that the backend is still running and
+`frontend/.env` points at it.
+
+### Optional: development checks
+
+```powershell
+# backend/
+ruff format --check .
+ruff check .
+mypy app
+pytest
+
+# frontend/
 npm run lint
 npm run typecheck     # tsc --noEmit
 npm test              # vitest run
 npm run build
-npm run dev           # http://localhost:3000
 ```
-
-The frontend needs the backend running for research requests; without it the UI shows
-a truthful "could not reach the research service" error.
-
-### Mock-mode demo (no keys, no provider calls)
-
-```powershell
-# Terminal 1 — backend in explicit mock mode
-cd backend
-.venv\Scripts\Activate.ps1
-$env:EXA_MODE="mock"; $env:MOLTSETS_MODE="mock"
-uvicorn app.main:app --port 8000
-# Git Bash instead: EXA_MODE=mock MOLTSETS_MODE=mock uvicorn app.main:app --port 8000
-
-# Terminal 2 — frontend
-cd frontend
-npm run dev
-```
-
-Then open <http://localhost:3000>. Alternatively, set `EXA_MODE=mock` and
-`MOLTSETS_MODE=mock` in `backend/.env` (env vars take precedence over the file).
 
 ## Environment variables
 
@@ -152,7 +192,7 @@ belong in the repo — **never commit real keys**.
 | `MOLTSETS_MODE` | backend | `live` | `live`, `mock`, or `off` (`off` reports the provider as disabled, no call). |
 | `MOLTSETS_USER_AGENT` | backend | `outmate-prototype/1.0` | Non-empty User-Agent sent on every MoltSets request (the API rejects missing/blank UAs). |
 | `CORS_ORIGINS` | backend | `http://localhost:3000` | Comma-separated explicit allowlist of frontend origins; `*` and empty values are rejected at startup. |
-| `NEXT_PUBLIC_API_BASE_URL` | frontend | `http://localhost:8000` | Public backend base URL — not a secret. Provider keys never appear in any `NEXT_PUBLIC_*` variable. |
+| `NEXT_PUBLIC_API_BASE_URL` | frontend | *(blank)* | Public backend base URL — required so the UI can reach the backend (set it in `frontend/.env`, see Quickstart). Not a secret; provider keys never appear in any `NEXT_PUBLIC_*` variable. |
 
 Provider secrets exist only in the backend environment; they never appear in logs,
 error bodies, the frontend bundle, or fixtures (enforced by the security audit tests).
