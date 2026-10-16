@@ -344,6 +344,7 @@ The supplied research identifies `POST https://api.exa.ai/search` as the primary
 Target no more than four logical Exa searches per report, excluding a necessary retry:
 
 1. Company identity / official domain.
+   - **1b.** Broader fallback identity search (same subject and `includeDomains` as search 1; `category` omitted). Runs only when search 1 finds no pages on the requested domain, and counts toward the four-search budget; when it is used, the leadership search is skipped.
 2. Company overview / products / market.
 3. Growth and news signals.
 4. Leadership / public decision-makers, or an objective-specific query where needed to stay within the cap.
@@ -394,6 +395,8 @@ Resolve company identity with one focused Exa search.
 Attach identity evidence and set company_identity.resolved only when evidence is sufficient.
 
 If identity is unresolved or materially conflicting:
+    when the primary identity search finds no pages on the requested domain, the identity phase may make one bounded fallback search (1b) before concluding unresolved;
+    when the fallback is used, the leadership search is skipped to stay within the four-search budget;
     mark identity-dependent fields unavailable;
     do not call MoltSets;
     calculate missing_fields and overall_status;

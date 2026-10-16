@@ -6,10 +6,10 @@ substrings in the request ``query``/``include_domains`` (see
 ``scenario_fixture``); any unknown company honestly finds nothing.
 
 Success-scenario hits have their host rewritten to the marker domain found
-in the request text (e.g. ``moltsets-error.test``), so a fixture company
-can actually resolve for a domain other than ``example-robotics.test``.
-The ambiguous and empty fixtures are never rewritten — ambiguity would be
-destroyed if every hit landed on one host.
+in the request text (e.g. ``moltsets-error.test``, ``fallback.test``), so a
+fixture company can actually resolve for a domain other than
+``example-robotics.test``. The ambiguous and empty fixtures are never
+rewritten — ambiguity would be destroyed if every hit landed on one host.
 """
 
 import json
@@ -26,6 +26,11 @@ _DEFAULT_FIXTURE_DIR = Path(__file__).resolve().parents[2] / "tests" / "fixtures
 _SUCCESS_MARKERS = ("example-robotics.test", "moltsets-error.test")
 _EMPTY_MARKERS = ("no-evidence.test",)
 _AMBIGUOUS_MARKERS = ("ambiguous",)
+# The bounded identity-fallback scenario: the primary company-category
+# identity search finds nothing; every other search gets its intent fixture.
+_FALLBACK_MARKER = "fallback.test"
+# Marker domains whose fixture hits are rewritten to the requested host.
+_REWRITE_MARKERS = (*_SUCCESS_MARKERS, _FALLBACK_MARKER)
 
 _LEADERSHIP_KEYWORDS = (
     "leadership",
@@ -79,6 +84,9 @@ def scenario_fixture(request: ExaSearchRequest) -> str:
     - ``ambiguous`` -> the multi-host identity fixture for the identity
       search; later searches find nothing (the orchestrator would not run
       them anyway)
+    - ``fallback.test`` -> the primary identity search (``category ==
+      "company"``) finds nothing; every other search gets its intent fixture
+      (the category-less fallback identity search finds a domain hit)
     - ``example-robotics.test`` / ``moltsets-error.test`` -> full success,
       fixture chosen by intent (identity/overview/growth/leadership)
     - anything else -> empty results (mock mode is honest: an unknown
@@ -91,6 +99,10 @@ def scenario_fixture(request: ExaSearchRequest) -> str:
         if _intent_fixture(request) == "exa_identity_hit.json":
             return "exa_identity_ambiguous.json"
         return "exa_empty.json"
+    if _FALLBACK_MARKER in text:
+        if request.category == "company":
+            return "exa_empty.json"
+        return _intent_fixture(request)
     if any(marker in text for marker in _SUCCESS_MARKERS):
         return _intent_fixture(request)
     return "exa_empty.json"
@@ -128,7 +140,7 @@ class FixtureExaProvider:
         hits = [ExaHit.model_validate(item) for item in results if isinstance(item, dict)]
         if fixture_name not in ("exa_empty.json", "exa_identity_ambiguous.json"):
             text = _request_text(request)
-            marker = next((m for m in _SUCCESS_MARKERS if m in text), None)
+            marker = next((m for m in _REWRITE_MARKERS if m in text), None)
             if marker is not None:
                 hits = [_rewrite_hit_host(hit, marker) for hit in hits]
         usage = payload.get("costDollars")

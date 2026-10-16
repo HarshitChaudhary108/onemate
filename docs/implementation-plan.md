@@ -319,6 +319,7 @@ Each milestone lists its tasks, then its tests, then an **exit criterion**. Do n
 
 1. `research/queries.py` — pure builders, unit-tested. There are four logical searches at most:
    1. `identity_query(name, domain)`: company identity / official site (`category="company"` allowed, no date filter). If the domain is known, prefer `includeDomains=[domain]` plus a name query.
+      - **1b.** `identity_fallback_query(name, domain)`: broader fallback identity search (same subject and `includeDomains` as search 1; `category` omitted). Runs only when search 1 finds no pages on the requested domain, and counts toward the four-search budget; when it is used, the leadership search is skipped.
    2. `overview_query(identity)`: about / products / customers / market.
    3. `growth_query(identity)`: `category="news"`, `startPublishedDate` = today − 12 months; terms covering hiring, funding, expansion, leadership, launch.
    4. `leadership_query(identity, objective)`: leadership / executives. If an objective is supplied, fold objective terms into query 2 or 4 to stay within four searches. No separate objective search is made when the objective is blank.
@@ -522,7 +523,7 @@ The same principle applies to `EXA_MODE`: in `live` mode a missing key means 503
 - ≤4 logical Exa searches per report, plus at most one retry each.
 - Concurrency ≤2 after identity.
 - MoltSets: ≤1 company + ≤1 people call (≤5 records), plus at most one permitted retry.
-- No exploratory re-queries after an empty result.
+- No exploratory re-queries after an empty result, except the single bounded identity fallback (search 1b); when it is used, the leadership search is skipped so the report still makes ≤ 4 logical searches.
 
 ## 6. Test matrix (requirement → test location)
 

@@ -42,6 +42,13 @@ VERIFIED facts:
   `includeDomains` is **not** listed as unsupported for `company` or `people`,
   so the identity search may combine `category: "company"` with
   `includeDomains: [domain]`.
+- Fallback identity request variant (docs-verified, **not live-tested**): the
+  bounded fallback identity search sends the same subject and `includeDomains`
+  as the identity search with `category` omitted. `category` is optional in
+  the request schema, and `includeDomains` is not restricted for the
+  remaining filters, so the category-less, domain-scoped shape is
+  documented-supported. No live request has exercised this variant (see the
+  live smoke test record).
 - Response (`SearchResultsResponse`, one of the two `SearchResponse` arms):
   `results` (required array), `requestId`, `searchTime` (ms), `costDollars`
   (`total`, `search.neural`/`keyword`, `contents.text`/`highlights`/`summary`),

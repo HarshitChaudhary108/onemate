@@ -21,7 +21,7 @@ function describeSearch(request: Report["request"]): string {
 function noteExplanation(note: string | null | undefined): string {
   switch (note) {
     case "no evidence for this domain":
-      return "The identity search returned no public pages on this domain.";
+      return "Two identity searches (company-focused and a broader domain search) returned no public pages on this domain.";
     case "no public-source hits matched the supplied company name":
       return "The identity search returned no public pages that matched this company name.";
     case "top name-matching hits point to more than one host":

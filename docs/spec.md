@@ -66,7 +66,7 @@ These decisions are binding unless implementation evidence reveals a true blocke
 | “Moldset” spelling | Treat MoltSets as the likely intended provider. | Confirm with Outmate or validate the supplied credentials before claiming live integration. |
 | Stack | Next.js App Router + TypeScript frontend; Python + FastAPI backend. | Keep UI rendering in Next.js and all research orchestration/provider calls in FastAPI. Reuse compatible existing conventions where possible; explain any material deviation. |
 | LLM/synthesis | No separate LLM provider for v1. Build descriptions and the opportunity hypothesis from captured evidence and conservative templates. | If Exa’s structured output is already available and is needed, keep it behind the Exa adapter and do not introduce a new paid dependency. All prose claims still require source evidence. |
-| Exa searches | One focused company/identity search, one growth/news search, one leadership/people search, plus an optional objective-specific search. | Target a maximum of four Exa searches per report, not counting a necessary retry. If the objective is blank, skip the optional search. |
+| Exa searches | One focused company/identity search, one growth/news search, one leadership/people search, plus an optional objective-specific search (plus at most one bounded fallback identity search when the domain yields no pages). | Target a maximum of four Exa searches per report, not counting a necessary retry. If the objective is blank, skip the optional search. |
 | MoltSets access | Build a real adapter, but treat actual account access as unconfirmed. | If no valid key or beta access is unavailable, mark enrichment fields unavailable in normal mode. Fixtures are allowed only in explicit mock/demo mode and must be labelled. |
 | Persistence | No database. | Only in-process caching of company lookup results by normalized domain is permitted. Do not cache people results or business emails. |
 | Overall status | Derive from factual fields, excluding the GTM opportunity. | Use the exact rules in Section 7. Individual missing fields do not force an otherwise useful report to `unavailable`. |
@@ -94,7 +94,7 @@ These decisions are binding unless implementation evidence reveals a true blocke
 - Do not request full-page text or generated summaries unless a clear field cannot be supported by highlights and the extra request cost/latency is understood.
 - Only send MoltSets requests for a verified domain. Free-plan people search is limited to five records per call according to the supplied research; do not exceed that limit.
 - Track calls and display remaining usage only when the provider actually returns usage information. Never invent a quota balance.
-- A failed or empty lookup should not trigger repeated exploratory calls that burn the free allowance.
+- A failed or empty lookup should not trigger repeated exploratory calls that burn the free allowance. When the identity search finds no pages on the requested domain, exactly one broader fallback identity search is allowed; it counts toward the four-search budget, and no other exploratory re-queries are made.
 
 ## 5. Technical architecture
 
