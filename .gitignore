@@ -24,4 +24,3 @@ agent_session_prompts.md
 # Test suites — not part of the published repo (fixtures included)
 backend/tests/
 docs/
-agent_session_prompts.md
