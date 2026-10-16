@@ -1,7 +1,7 @@
 # Plan — Identity fallback: handle zero identity results more intelligently
 
 **Date:** 2026-10-16
-**Status:** awaiting approval — implementation not started
+**Status:** implemented — fixture-tested (2026-10-16)
 **Constraint:** no live provider calls. All implementation testing is fixture-based
 (mock providers / scripted fakes; the test network guard blocks non-loopback
 sockets). A live confirmation of the new path is a separate, explicitly approved

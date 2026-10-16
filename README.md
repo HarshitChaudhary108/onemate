@@ -217,7 +217,8 @@ substring):
 |---|---|
 | `example-robotics.test` | Full mock report; mock banner; `data_mode: "mock"` |
 | `ambiguous` (e.g. `Example Ambiguous`) | Unresolved identity report; **no MoltSets calls**; note explains what was searched |
-| `no-evidence.test` | Unresolved report: "no evidence for this domain" |
+| `no-evidence.test` | Unresolved report: "no evidence for this domain" (identity + fallback = 2 Exa calls) |
+| `fallback.test` | Full mock report via the bounded fallback: the primary identity search finds nothing; the broader fallback resolves the domain (4 Exa calls; leadership skipped) |
 | `moltsets-error.test` | Partial report: Exa evidence kept, MoltSets error listed, enrichment unavailable |
 | anything else | Unresolved report; nothing is invented |
 
@@ -326,6 +327,13 @@ an otherwise useful report.
   (subdomains count, `www.` ignored). If a name is supplied too, a domain-matching hit
   must also name-match — otherwise ambiguous ("supplied name and domain do not
   agree"). No domain-matching hit → unresolved ("no evidence for this domain").
+- **Bounded identity fallback:** when the identity search finds no pages on the
+  requested domain, exactly one broader fallback search runs — same subject and domain
+  scoping (`includeDomains`), with the `company` category omitted so Exa searches all
+  indexed pages on the domain instead of the company index alone. If the fallback
+  resolves, the leadership search is skipped, so the report still makes at most four
+  Exa searches. If it does not, the run stays unresolved with the same honest note,
+  and MoltSets is never called.
 - **Name only:** the top 5 name-matching hits must all share a single host; multiple
   hosts → ambiguous, no matching hits → unresolved.
 - A resolved identity's name/domain are `verified` with the supporting hit(s) as
@@ -391,9 +399,12 @@ Every response carries `X-Request-ID` and `Cache-Control: no-store`.
   the adapter caps people searches at 5 in code.
 - Per-report budget: **≤ 4 Exa searches** (identity, overview/market, growth/news,
   leadership — the objective is folded into the overview query) + ≤ 1 permitted retry
-  each; **≤ 1 MoltSets company call + ≤ 1 people call** + ≤ 1 retry each, and people
-  calls only after a company match. No exploratory re-queries; post-identity Exa
-  concurrency is capped at 2.
+  each. On fallback runs (the identity search finds no pages on the domain) the
+  allocation is identity + fallback + overview + growth = 4, and the leadership search
+  is skipped. **≤ 1 MoltSets company call + ≤ 1 people call** + ≤ 1 retry each, and
+  people calls only after a company match. No exploratory re-queries after an empty
+  result, except the single bounded identity fallback; post-identity Exa concurrency
+  is capped at 2.
 - Usage/quota figures are displayed only when the provider actually returns them —
   never invented.
 - Live smoke tests are manual and opt-in only: one approved Exa identity search ran
@@ -446,6 +457,10 @@ Every response carries `X-Request-ID` and `Cache-Control: no-store`.
   (`"Stripe company"`, scoped to `stripe.com`) through the backend adapter — HTTP 200,
   5 hits, one call, no retry, ≈ $0.007. The full four-search report path remains
   fixture-tested; the mock path is locally tested.
+- **The identity fallback (search 1b) is fixture-tested only.** The bounded fallback
+  path has not been exercised against live Exa — whether a category-less,
+  domain-scoped search resolves a domain the company index misses is unconfirmed until
+  an approved smoke test.
 - **No live MoltSets call** has been made. Signup/access is unconfirmed; the adapter
   is fixture-tested and exercised via `MOLTSETS_MODE=mock` only.
 - Remaining provider behavior (error codes, retry metadata, other query types and
