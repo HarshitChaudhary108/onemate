@@ -1,0 +1,1 @@
+"""Typed provider/application errors."""

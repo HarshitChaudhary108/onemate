@@ -1,0 +1,47 @@
+"""Pydantic request/response contracts (authoritative backend schema)."""
+
+from app.schemas.report import (
+    CompanyIdentity,
+    ContactInfo,
+    DataMode,
+    DecisionMaker,
+    ErrorBody,
+    ErrorDetail,
+    ErrorResponse,
+    Field,
+    GrowthSignal,
+    GtmHypothesis,
+    ProviderName,
+    Providers,
+    ProviderState,
+    ProviderSummary,
+    RationalePoint,
+    Report,
+    ReportError,
+    Source,
+    Status,
+)
+from app.schemas.research import ResearchRequest
+
+__all__ = [
+    "CompanyIdentity",
+    "ContactInfo",
+    "DataMode",
+    "DecisionMaker",
+    "ErrorBody",
+    "ErrorDetail",
+    "ErrorResponse",
+    "Field",
+    "GrowthSignal",
+    "GtmHypothesis",
+    "ProviderName",
+    "ProviderState",
+    "ProviderSummary",
+    "Providers",
+    "RationalePoint",
+    "Report",
+    "ReportError",
+    "ResearchRequest",
+    "Source",
+    "Status",
+]

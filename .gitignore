@@ -1,0 +1,25 @@
+# Environment files (secrets) — .env.example files are placeholders and stay tracked
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node / Next.js
+node_modules/
+.next/
+coverage/
+
+# Agentic workflow docs and tooling — not part of the published repo
+AGENTS.md
+agent_session_prompts.md
+.devin/
+
+# Test suites — not part of the published repo (fixtures included)
+backend/tests/
