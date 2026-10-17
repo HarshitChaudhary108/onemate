@@ -34,7 +34,7 @@ sources, and honest `unavailable` instead of invented answers:
 - **Plans columns from a prompt**: a bounded Groq call proposes ≤ 3 columns
   (name, `{{…}}` template, output type, source scope, depth); the server
   re-validates everything the model claims — dependencies, unique names,
-  cycles, scope policy — before a labelled estimate is shown.
+  cycles — before a labelled estimate is shown.
 - **Executes cells append-only**: each `(row, column)` cell is one Exa
   `/search` + `outputSchema` call, validated per output type and mapped to a
   `Field` status (`verified` only with a cited http(s) URL). New columns never
@@ -66,12 +66,9 @@ sources, and honest `unavailable` instead of invented answers:
 
 ## What it deliberately does not do
 
-- No paid endpoints: no phone lookup, no personal-email lookup, no contact
-  inference — this is enforced server-side by the planner's scope policy, not
-  just promised in a prompt. No numeric buying-intent/lead scores.
+- No paid lookup endpoints: data comes from public web search only.
 - No CRM sync, outreach sequences, cold email, LinkedIn automation,
-  ad-audience sync, CSV file upload, or list-building rows (paste import and
-  research columns only).
+  ad-audience sync, or CSV file upload.
 - No accounts, billing, or multi-tenant code. The sheets API has **no
   authentication** — run it locally or behind a trusted boundary only.
 - No autonomous multi-agent orchestration: the planner is one bounded Groq
@@ -101,7 +98,7 @@ FastAPI backend                                        backend/
   ├─ sheets HTTP API + SSE events                      app/api/sheets.py
   │    ├─ domain rules (append-only, limits, dedupe)   app/sheets/service.py
   │    ├─ SQLite store (cells table = job queue)       app/sheets/{db,models,repo}.py
-  │    ├─ prompt→column planner (Groq, re-validated)   app/planner/* + app/policy/scope.py
+  │    ├─ prompt→column planner (Groq, re-validated)   app/planner/*
   │    └─ engine                                       app/engine/*
   │         ├─ graph: {{Column}} deps, topo order, cycle rejection
   │         ├─ cell_exec: render → one Exa structured search → Field map
@@ -409,7 +406,7 @@ column version and marks dependent cells `stale` — it never wipes values.
 ## Sheets API
 
 All under `/api`, on the same `ErrorResponse` shape as the report pipeline
-(`not_found` → 404; name/reference/run conflicts → 409; scope and validation
+(`not_found` → 404; name/reference/run conflicts → 409; validation
 violations → 422; missing provider keys → 503):
 
 - `POST /api/sheets` · `GET /api/sheets` · `GET /api/sheets/{id}/snapshot` ·
@@ -493,14 +490,12 @@ Shared by the report pipeline and sheet rows (the same `resolve_identity`):
   a separate `LlmError` (provider `"Groq"`) — never into the frozen
   `Literal["Exa","MoltSets"]` contract.
 - Planner intents: `add_columns` (≤ 3), `needs_clarification` (one question),
-  `unsupported` (with reason — the scope policy refuses phone numbers,
-  personal emails, and contact inference).
+  `unsupported` (with reason).
 
 **MoltSets** (`backend/app/providers/moltsets.py`)
 
 - Base `https://api.moltsets.com/api/v1/tools/`; only `search_companies` and
-  `search_people` are ever called — phone, personal-email, and every other
-  tool are out of scope.
+  `search_people` are ever called.
 - `Authorization: Bearer` + a non-empty `User-Agent` on every request.
 - Company lookup by the confirmed domain is cached in process memory (errors
   never cached); people searches are never cached and hard-capped at 5.

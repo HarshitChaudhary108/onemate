@@ -296,45 +296,6 @@ async def test_planner_depends_on_claim_is_recomputed() -> None:
     assert by_name["B"].depends_on == ["Revenue"]  # template-derived
 
 
-# -- D7 scope policy ------------------------------------------------------------------
-
-
-async def test_out_of_scope_plan_becomes_unsupported() -> None:
-    """Request in scope but the model still plans a contact column → repair;
-    a persistent violation ends as ``unsupported``, not a crash."""
-    violating = _content([_col_json("Personal Email", "the CEO's personal email")])
-    fake = FakeLlm(
-        [
-            _result(violating),
-            _result(_content(intent="unsupported", reason="contact data is out of scope")),
-        ]
-    )
-    result = await _planner(fake).plan("enrich each company", columns=[])
-    assert result.intent == "unsupported"
-    assert result.reason
-    assert "scope" in fake.requests[1].user_prompt
-
-
-async def test_persistent_scope_violation_returns_unsupported() -> None:
-    violating = _result(_content([_col_json("Phone", "the company's phone")]))
-    fake = FakeLlm([violating, violating])
-    result = await _planner(fake).plan("enrich each company", columns=[])
-    assert result.intent == "unsupported"
-    assert result.reason and "phone" in result.reason
-    assert len(fake.requests) == 2
-
-
-async def test_out_of_scope_request_forces_refusal_or_failure() -> None:
-    """Even a clean-looking add_columns plan is rejected when the request
-    itself asks for out-of-scope data."""
-    clean_plan = _result(_content([_col_json("Notes", "describe {{Company}}")]))
-    refusal = _result(_content(intent="unsupported", reason="phone numbers are out of scope"))
-    fake = FakeLlm([clean_plan, refusal])
-    result = await _planner(fake).plan("add a phone number column", columns=[])
-    assert result.intent == "unsupported"
-    assert len(fake.requests) == 2
-
-
 # -- provider failure and mock --------------------------------------------------------
 
 

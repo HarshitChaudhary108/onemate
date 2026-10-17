@@ -4,8 +4,8 @@ Natural-language request → validated column plan. One structured-output
 Groq call produces a draft; server-side validation then re-checks
 EVERYTHING — ``depends_on`` is recomputed from the templates via
 :mod:`app.engine.graph` (planner claims are never trusted), names must be
-unique and unreserved, the D7 scope policy is enforced, and unknown
-references, self-references and cycles are rejected.
+unique and unreserved, and unknown references, self-references and cycles
+are rejected.
 
 Exactly one repair retry on unparseable or domain-invalid output, then a
 structured failure — never a crash, never a guess. Provider failures
@@ -32,7 +32,6 @@ from app.planner.spec import (
     RawPlanResponse,
     SheetColumn,
 )
-from app.policy.scope import scope_violation
 from app.providers.types import LlmProvider, LlmRequest, LlmResult
 from app.sheets.models import Column
 
@@ -45,14 +44,9 @@ _MAX_PROBLEMS_IN_PROMPT = 8
 
 @dataclass(frozen=True)
 class _Problem:
-    """One domain-validation failure, fed back to the model on repair.
-
-    ``scope`` marks D7 violations so a persistently out-of-scope plan ends
-    as ``unsupported`` rather than ``failed``.
-    """
+    """One domain-validation failure, fed back to the model on repair."""
 
     detail: str
-    scope: bool = False
 
 
 class Planner:
@@ -124,9 +118,6 @@ class Planner:
         )
         if isinstance(retried, PlanResult):
             return retried.model_copy(update={"mock": retry.mock})
-        if any(problem.scope for problem in retried):
-            reason = next(p.detail for p in retried if p.scope)
-            return PlanResult(intent="unsupported", reason=reason, mock=retry.mock)
         return PlanResult(
             intent="failed",
             reason="the planner's response could not be validated: "
@@ -170,14 +161,6 @@ class Planner:
             return PlanResult(intent="unsupported", reason=raw.reason)
 
         problems: list[_Problem] = []
-        if reason := scope_violation(request):
-            problems.append(
-                _Problem(
-                    f"the request is out of scope ({reason}); answer with intent "
-                    '"unsupported" or keep every column in scope',
-                    scope=True,
-                )
-            )
 
         existing_names = {column.name for column in existing}
         templates = {column.name: column.prompt_template for column in existing}
@@ -196,8 +179,6 @@ class Planner:
                 plan_names.add(name)
             if planned.output_type == "enum" and not planned.enum_options:
                 problems.append(_Problem(f"enum column {name!r} needs enum_options"))
-            if reason := scope_violation(f"{name}\n{planned.prompt_template}"):
-                problems.append(_Problem(f"column {name!r} is out of scope: {reason}", scope=True))
             templates[name] = planned.prompt_template
 
         if len(existing) + len(raw.columns) > self._max_columns:
