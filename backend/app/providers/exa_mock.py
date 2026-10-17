@@ -14,10 +14,18 @@ rewritten — ambiguity would be destroyed if every hit landed on one host.
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
-from app.providers.types import ExaHit, ExaProvider, ExaSearchRequest, ExaSearchResult
+from app.providers.types import (
+    ExaCitation,
+    ExaGroundingEntry,
+    ExaHit,
+    ExaOutput,
+    ExaProvider,
+    ExaSearchRequest,
+    ExaSearchResult,
+)
 
 # Fixtures live in the test tree (synthetic data, obviously fictional).
 _DEFAULT_FIXTURE_DIR = Path(__file__).resolve().parents[2] / "tests" / "fixtures"
@@ -127,6 +135,56 @@ def _rewrite_hit_host(hit: ExaHit, domain: str) -> ExaHit:
         return hit
 
 
+def _synthetic_value(prop: Any) -> Any:
+    """Deterministic placeholder for one declared JSON-schema property."""
+    prop_type = prop.get("type") if isinstance(prop, dict) else None
+    if prop_type == "boolean":
+        return True
+    if prop_type in ("integer", "number"):
+        return 0
+    if prop_type == "array":
+        return []
+    if prop_type == "object":
+        return _synthetic_object(prop)
+    return "synthetic mock value"
+
+
+def _synthetic_object(schema: dict[str, Any]) -> dict[str, Any]:
+    """Fill every declared property of an object schema with a placeholder."""
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return {}
+    return {name: _synthetic_value(prop) for name, prop in properties.items()}
+
+
+def _synthetic_output(request: ExaSearchRequest) -> ExaOutput:
+    """Build a deterministic structured result from the request's schema.
+
+    Clearly synthetic: grounding uses ``confidence="low"`` and citations on
+    the reserved ``mock.test`` domain, so mock output can never surface as
+    verified data downstream.
+    """
+    schema = request.output_schema or {}
+    content: Any = (
+        "synthetic mock value" if schema.get("type") == "text" else _synthetic_object(schema)
+    )
+    fields = list(content) if isinstance(content, dict) else ["content"]
+    grounding = [
+        ExaGroundingEntry(
+            field=name,
+            citations=[
+                ExaCitation(
+                    url="https://synthetic.mock.test/citation",
+                    title="Synthetic mock citation",
+                )
+            ],
+            confidence="low",
+        )
+        for name in fields
+    ]
+    return ExaOutput(content=content, grounding=grounding)
+
+
 class FixtureExaProvider:
     """Fixture-backed Exa provider. Never performs I/O beyond local files."""
 
@@ -134,6 +192,17 @@ class FixtureExaProvider:
         self._fixture_dir = fixture_dir or _DEFAULT_FIXTURE_DIR
 
     async def search(self, request: ExaSearchRequest) -> ExaSearchResult:
+        if request.output_schema is not None:
+            # Structured-output branch: deterministic synthetic result built
+            # from the request schema. No fixture file is read — the fixture
+            # tree is absent from this repo.
+            return ExaSearchResult(
+                hits=[],
+                query=request.query,
+                output=_synthetic_output(request),
+                calls=1,
+                mock=True,
+            )
         fixture_name = scenario_fixture(request)
         payload = json.loads((self._fixture_dir / fixture_name).read_text())
         results = payload.get("results", [])

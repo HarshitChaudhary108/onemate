@@ -9,7 +9,7 @@ normal outcome, not an error.
 (0 for a process-local cache hit). ``mock`` is provenance metadata.
 """
 
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -35,6 +35,11 @@ class ExaSearchRequest(BaseModel):
     include_domains: list[str] | None = None
     start_published_date: str | None = None
     end_published_date: str | None = None
+    # Structured output (plan §1.2): ``deep-reasoning`` is never legal — the
+    # 30 s adapter timeout is too short for it, so it stays out of the MVP.
+    search_type: Literal["auto", "deep"] = "auto"
+    system_prompt: str | None = None
+    output_schema: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def _date_filters_need_news_category(self) -> "ExaSearchRequest":
@@ -70,6 +75,38 @@ class ExaHit(BaseModel):
     score: float | None = None
 
 
+class ExaCitation(BaseModel):
+    """One citation inside a grounding entry (provider payload, tolerant)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    url: str | None = None
+    title: str | None = None
+
+
+class ExaGroundingEntry(BaseModel):
+    """Grounding for one field path inside ``output.content``.
+
+    ``field`` is a path inside the output content (e.g. ``value`` or
+    ``companies[0].funding``); ``confidence`` is the documented enum.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    field: str
+    citations: list[ExaCitation] = []
+    confidence: Literal["low", "medium", "high"]
+
+
+class ExaOutput(BaseModel):
+    """Synthesized structured output returned when ``outputSchema`` was sent."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    content: Any
+    grounding: list[ExaGroundingEntry] = []
+
+
 class ExaSearchResult(BaseModel):
     """Normalized result of one Exa search."""
 
@@ -78,6 +115,7 @@ class ExaSearchResult(BaseModel):
     hits: list[ExaHit]
     query: str
     usage: dict[str, Any] | None = None
+    output: ExaOutput | None = None
     calls: int = 0
     mock: bool = False
 
@@ -165,3 +203,35 @@ class MoltSetsProvider(Protocol):
         seniority: list[str],
         limit: int = 5,
     ) -> MoltSetsPeopleResult: ...
+
+
+class LlmRequest(BaseModel):
+    """One structured-output LLM call.
+
+    ``json_schema`` is the raw JSON Schema object the provider is asked to
+    conform to; adapters wrap it in the provider's response-format envelope.
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    model: str = Field(min_length=1)
+    system_prompt: str = Field(min_length=1)
+    user_prompt: str = Field(min_length=1)
+    json_schema: dict[str, Any]
+
+
+class LlmResult(BaseModel):
+    """Normalized LLM result. ``content`` is the parsed JSON value."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: Any
+    usage: dict[str, Any] | None = None
+    calls: int = 0
+    mock: bool = False
+
+
+class LlmProvider(Protocol):
+    """One structured completion per call."""
+
+    async def complete(self, request: LlmRequest) -> LlmResult: ...

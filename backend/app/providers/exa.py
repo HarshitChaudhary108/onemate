@@ -16,7 +16,13 @@ import httpx
 from pydantic import SecretStr, ValidationError
 
 from app.errors.provider_error import ProviderError
-from app.providers.types import ExaHit, ExaProvider, ExaSearchRequest, ExaSearchResult
+from app.providers.types import (
+    ExaHit,
+    ExaOutput,
+    ExaProvider,
+    ExaSearchRequest,
+    ExaSearchResult,
+)
 
 # VERIFIED 2026-10-16 (docs.exa.ai/reference/search, OpenAPI spec):
 EXA_SEARCH_URL = "https://api.exa.ai/search"
@@ -169,7 +175,7 @@ class HttpExaProvider:
     def _build_body(request: ExaSearchRequest) -> dict[str, Any]:
         body: dict[str, Any] = {
             "query": request.query,
-            "type": "auto",
+            "type": request.search_type,
             "numResults": request.num_results,
             "contents": {"highlights": True},
         }
@@ -181,6 +187,12 @@ class HttpExaProvider:
             body["startPublishedDate"] = request.start_published_date
         if request.end_published_date:
             body["endPublishedDate"] = request.end_published_date
+        # Structured output (plan §1.2): only sent when requested, so a
+        # legacy request produces a byte-identical body.
+        if request.system_prompt:
+            body["systemPrompt"] = request.system_prompt
+        if request.output_schema is not None:
+            body["outputSchema"] = request.output_schema
         return body
 
     @staticmethod
@@ -208,10 +220,21 @@ class HttpExaProvider:
         except ValidationError:
             raise invalid from None
         usage = payload.get("costDollars")
+        # `output` is only present when outputSchema was sent; a missing or
+        # malformed value is a normal outcome (None), never an error.
+        # Optional `warnings`/`notices` fields are tolerated and ignored.
+        output: ExaOutput | None = None
+        raw_output = payload.get("output")
+        if raw_output is not None:
+            try:
+                output = ExaOutput.model_validate(raw_output)
+            except ValidationError:
+                output = None
         return ExaSearchResult(
             hits=hits,
             query=request.query,
             usage=usage if isinstance(usage, dict) else None,
+            output=output,
             calls=calls,
             mock=False,
         )
