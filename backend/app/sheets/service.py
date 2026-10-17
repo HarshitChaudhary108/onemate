@@ -17,9 +17,13 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from app.engine.budget import ESTIMATED_SEARCH_COST_USD
+from app.engine.cell_exec import result_cost
 from app.engine.graph import RESERVED_REFS, ColumnGraph, TemplateError
 from app.errors.sheet_error import SheetError
 from app.normalize.domain import DomainError, normalize_domain
+from app.providers.types import ExaProvider
+from app.research.rows_query import generate_rows_request
 from app.sheets import repo
 from app.sheets.models import (
     Cell,
@@ -53,6 +57,23 @@ class ColumnSpec:
     source_scope: SourceScope
     depth: Depth = "standard"
     enum_options: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class GeneratedRows:
+    """Outcome of one list-building generation call (P9a).
+
+    ``estimated_cost_usd`` is the labelled estimate (the documented
+    ``/search`` upper bound); ``cost_usd`` is provider-reported spend only
+    — ``None`` when the result carried no ``costDollars.total``, never
+    invented. ``mock`` is provenance, carried through verbatim.
+    """
+
+    rows: list[Row]
+    skipped: int
+    estimated_cost_usd: float
+    cost_usd: float | None
+    mock: bool
 
 
 class SheetService:
@@ -169,6 +190,60 @@ class SheetService:
             for column in columns:
                 await repo.upsert_cell(self._db, row.id, column.id)
         return created
+
+    async def generate_rows(
+        self,
+        exa: ExaProvider,
+        sheet_id: str,
+        query: str,
+        max_results: int,
+        cap: float | None = None,
+    ) -> GeneratedRows:
+        """List-building (P9a): ONE Exa ``category="company"`` search whose
+        hits are imported exactly like pasted rows — ``input_domain`` only
+        (a name is NEVER guessed from a hit title), ``identity_status``
+        "pending", resolved inside the next user-chosen run.
+
+        Nothing auto-runs: generation creates idle cells only and no
+        ``runs`` row exists — the search spend travels in this response.
+        The cap is enforced BEFORE the call against the labelled estimate,
+        so a request that could spend past the cap is refused outright.
+        """
+        if await repo.get_sheet(self._db, sheet_id) is None:
+            raise SheetError(code="not_found", message="sheet not found")
+        if cap is not None and ESTIMATED_SEARCH_COST_USD > cap:
+            raise SheetError(
+                code="cap_exceeded",
+                message=(
+                    f"the labelled estimate ${ESTIMATED_SEARCH_COST_USD:.3f} for one "
+                    f"company search exceeds the cap ${cap:.2f}; the call was not made"
+                ),
+            )
+        result = await exa.search(generate_rows_request(query, max_results))
+        inputs: list[RowInput] = []
+        for hit in result.hits:
+            if not hit.url:
+                continue  # a hit without a URL cannot become a row
+            try:
+                host = normalize_domain(hit.url).host
+            except DomainError:
+                continue  # unparseable hit URL — honestly skipped
+            inputs.append(RowInput(input_domain=host))
+        # Truncate to the remaining capacity — the same sheet cap
+        # import_rows enforces — so a nearly-full sheet gets the rows that
+        # fit instead of a whole-call rejection.
+        existing = await repo.list_rows(self._db, sheet_id)
+        capacity = max(0, self._max_rows - len(existing))
+        created = await self.import_rows(sheet_id, inputs[:capacity])
+        return GeneratedRows(
+            rows=created,
+            # Honest accounting: hits that did not become rows (no/invalid
+            # URL, duplicate domain, over-cap truncation).
+            skipped=len(result.hits) - len(created),
+            estimated_cost_usd=ESTIMATED_SEARCH_COST_USD,
+            cost_usd=result_cost(result),
+            mock=result.mock,
+        )
 
     # -- columns -------------------------------------------------------------
 

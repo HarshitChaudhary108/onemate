@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, ListPlus, OctagonX } from "lucide-react";
+import { Download, ListPlus, OctagonX, Search } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
 
@@ -25,10 +25,12 @@ const TERMINAL = new Set(["done", "error", "blocked"]);
 export function SheetToolbar({
   onCancelRun,
   onImportRows,
+  onFindCompanies,
   cancelling,
 }: {
   onCancelRun: (runId: string) => void;
   onImportRows: () => void;
+  onFindCompanies: () => void;
   cancelling?: boolean;
 }) {
   const sheet = useSheetStore((state) => state.sheet);
@@ -123,6 +125,15 @@ export function SheetToolbar({
             {cancelling ? "Cancelling…" : "Cancel run"}
           </button>
         ) : null}
+
+        <button
+          type="button"
+          onClick={onFindCompanies}
+          className="inline-flex items-center gap-1.5 rounded-card border border-line-strong bg-surface px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface-muted"
+        >
+          <Search aria-hidden="true" className="h-3.5 w-3.5" />
+          Find companies
+        </button>
 
         <button
           type="button"

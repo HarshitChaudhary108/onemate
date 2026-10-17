@@ -13,6 +13,7 @@ rewritten — ambiguity would be destroyed if every hit landed on one host.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
@@ -185,6 +186,34 @@ def _synthetic_output(request: ExaSearchRequest) -> ExaOutput:
     return ExaOutput(content=content, grounding=grounding)
 
 
+def _company_search_hits(request: ExaSearchRequest) -> ExaSearchResult:
+    """Deterministic synthetic hits for a mock list-building search (P9a).
+
+    An open-web ``category="company"`` search (no ``include_domains``, no
+    ``output_schema``) gets ``num_results`` synthetic hits on the reserved
+    ``.test`` TLD, with the host label derived from the query text so the
+    same query always yields the same companies. No fixture file is read —
+    the fixture tree is absent from this repo. Clearly synthetic: never
+    real company facts.
+    """
+    words = re.findall(r"[a-z0-9]+", request.query.lower())
+    slug = "-".join(words[:3])[:40].strip("-") or "company"
+    hits = [
+        ExaHit(
+            url=f"https://{slug}-{i}.mock-companies.test/",
+            title=f"Synthetic company {i} for {slug}",
+        )
+        for i in range(1, request.num_results + 1)
+    ]
+    return ExaSearchResult(
+        hits=hits,
+        query=request.query,
+        usage={"total": 0.015, "search": {"neural": 0.015}},
+        calls=1,
+        mock=True,
+    )
+
+
 class FixtureExaProvider:
     """Fixture-backed Exa provider. Never performs I/O beyond local files."""
 
@@ -203,6 +232,11 @@ class FixtureExaProvider:
                 calls=1,
                 mock=True,
             )
+        if request.category == "company" and not request.include_domains:
+            # List-building search (P9a): synthetic company hits — no
+            # fixture file. Identity searches (which set include_domains)
+            # keep the fixture-driven path below.
+            return _company_search_hits(request)
         fixture_name = scenario_fixture(request)
         payload = json.loads((self._fixture_dir / fixture_name).read_text())
         results = payload.get("results", [])

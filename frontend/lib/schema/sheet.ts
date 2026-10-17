@@ -173,6 +173,16 @@ export const ImportRowsResponseSchema = z.strictObject({
 });
 export type ImportRowsResponse = z.infer<typeof ImportRowsResponseSchema>;
 
+export const GenerateRowsResponseSchema = z.strictObject({
+  rows: z.array(SheetRowSchema),
+  created: z.number().int(),
+  skipped: z.number().int(),
+  estimated_cost_usd: z.number(),
+  cost_usd: z.number().nullable(),
+  mock: z.boolean(),
+});
+export type GenerateRowsResponse = z.infer<typeof GenerateRowsResponseSchema>;
+
 export const CreateColumnsResponseSchema = z.strictObject({
   columns: z.array(SheetColumnSchema),
   run: SheetRunSchema.nullable().optional(),
@@ -212,6 +222,12 @@ export type PlanResult = z.infer<typeof PlanResultSchema>;
 // --- request bodies (client → backend; validated server-side) ----------------
 
 export type ImportRowInput = { name?: string; domain?: string };
+
+export type GenerateRowsInput = {
+  query: string;
+  max_results?: number;
+  cap?: number;
+};
 
 export type ColumnSpecInput = {
   name: string;

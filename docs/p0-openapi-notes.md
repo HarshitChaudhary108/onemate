@@ -82,3 +82,8 @@ is marked *unverified against the live API*.
 
 - **U5, U6 — open.** Resolved by automated gates: U5 by the P6 `npm run build`, U6 by the
   P5 SSE integration test.
+
+- **U7 — `category="company"` response shape for row generation (P9a):** *Unverified
+  live.* `POST /api/sheets/{id}/rows/generate` reads only `results[].url`/`title` from a
+  plain company-category search — no `outputSchema`, no `includeDomains`; whether live
+  hits reliably carry parseable company domains is unverified against the live API.

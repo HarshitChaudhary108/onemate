@@ -340,7 +340,13 @@ describe("SheetToolbar run progress", () => {
         { type: "run", run_id: "run1", status: "started", reason: null },
       ]);
     });
-    render(<SheetToolbar onCancelRun={vi.fn()} onImportRows={vi.fn()} />);
+    render(
+      <SheetToolbar
+        onCancelRun={vi.fn()}
+        onImportRows={vi.fn()}
+        onFindCompanies={vi.fn()}
+      />,
+    );
     expect(screen.getByTestId("run-progress")).toHaveTextContent("2 of 3 cells");
     expect(screen.getByText(/Spent \$0\.0070/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /cancel run/i })).toBeInTheDocument();

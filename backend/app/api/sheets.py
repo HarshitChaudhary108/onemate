@@ -30,7 +30,7 @@ from app.config import Settings
 from app.engine.events import EventHub, HubRegistry
 from app.engine.runner import SheetRunner
 from app.errors.llm_error import LlmError
-from app.errors.provider_error import ResearchUnavailable
+from app.errors.provider_error import ProviderError, ResearchUnavailable
 from app.errors.sheet_error import SheetError
 from app.planner.planner import Planner
 from app.planner.prompts import MAX_SAMPLE_VALUES
@@ -42,6 +42,8 @@ from app.schemas.sheet import (
     CreateColumnsResponse,
     CreateRunRequest,
     CreateSheetRequest,
+    GenerateRowsRequest,
+    GenerateRowsResponse,
     ImportRowsRequest,
     ImportRowsResponse,
     PlanRequest,
@@ -163,6 +165,43 @@ async def import_rows(sheet_id: str, body: ImportRowsRequest, deps: Deps) -> Imp
         rows=created,
         created=len(created),
         skipped=len(body.rows) - len(created),
+    )
+
+
+@router.post("/api/sheets/{sheet_id}/rows/generate", status_code=201)
+async def generate_rows(
+    sheet_id: str, body: GenerateRowsRequest, deps: Deps
+) -> GenerateRowsResponse:
+    """List-building (P9a): ONE bounded Exa ``category="company"`` search;
+    hits become pending rows deduped exactly like pasted rows. Nothing
+    auto-runs — generated rows resolve identity inside the next run the
+    user chooses. No Exa key is a 503, never a silent mock."""
+    exa = deps.providers.exa
+    if exa is None:
+        raise ResearchUnavailable(
+            code="exa_not_configured",
+            message="row generation is unavailable: Exa is not configured",
+        )
+    try:
+        generated = await deps.service.generate_rows(
+            exa,
+            sheet_id,
+            body.query,
+            body.max_results,
+            cap=body.cap,
+        )
+    except ProviderError as exc:
+        # Same mapping as the report pipeline: the provider code carries
+        # through onto ResearchUnavailable (503 for not_configured, else
+        # 502) via the shared handler.
+        raise ResearchUnavailable(code=exc.code, message=exc.message) from exc
+    return GenerateRowsResponse(
+        rows=generated.rows,
+        created=len(generated.rows),
+        skipped=generated.skipped,
+        estimated_cost_usd=generated.estimated_cost_usd,
+        cost_usd=generated.cost_usd,
+        mock=generated.mock,
     )
 
 

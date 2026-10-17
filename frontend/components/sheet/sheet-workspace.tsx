@@ -4,6 +4,7 @@ import { TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CellInspector } from "@/components/sheet/cell-inspector";
+import { GenerateRowsDialog } from "@/components/sheet/generate-rows-dialog";
 import { ImportRowsDialog } from "@/components/sheet/import-rows-dialog";
 import { PromptBar, type PromptBarApi } from "@/components/sheet/prompt-bar";
 import { RowProfileSheet } from "@/components/sheet/row-profile-sheet";
@@ -37,6 +38,7 @@ export function SheetWorkspace({ sheetId }: { sheetId: string }) {
   );
   const [profileRowId, setProfileRowId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [generateOpen, setGenerateOpen] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [plan, setPlan] = useState<PlanResult | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
@@ -187,6 +189,7 @@ export function SheetWorkspace({ sheetId }: { sheetId: string }) {
       <SheetToolbar
         onCancelRun={(runId) => void handleCancelRun(runId)}
         onImportRows={() => setImportOpen(true)}
+        onFindCompanies={() => setGenerateOpen(true)}
         cancelling={cancelling}
       />
 
@@ -268,6 +271,14 @@ export function SheetWorkspace({ sheetId }: { sheetId: string }) {
           sheetId={sheetId}
           onClose={() => setImportOpen(false)}
           onImported={handleImported}
+        />
+      ) : null}
+
+      {generateOpen ? (
+        <GenerateRowsDialog
+          sheetId={sheetId}
+          onClose={() => setGenerateOpen(false)}
+          onGenerated={handleImported}
         />
       ) : null}
     </div>

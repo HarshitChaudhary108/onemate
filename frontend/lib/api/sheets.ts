@@ -13,6 +13,7 @@ import { ErrorResponseSchema } from "@/lib/schema/report";
 import {
   CellDetailSchema,
   CreateColumnsResponseSchema,
+  GenerateRowsResponseSchema,
   ImportRowsResponseSchema,
   PlanResultSchema,
   SheetColumnSchema,
@@ -24,6 +25,8 @@ import {
   type ColumnSpecInput,
   type CreateColumnsResponse,
   type CreateRunInput,
+  type GenerateRowsInput,
+  type GenerateRowsResponse,
   type ImportRowInput,
   type ImportRowsResponse,
   type PlanResult,
@@ -165,6 +168,26 @@ export function importRows(
     { method: "POST", body: { rows } },
     201,
     ImportRowsResponseSchema,
+  );
+}
+
+/** List-building (P9a): ONE Exa company search; hits become pending rows. */
+export function generateRows(
+  sheetId: string,
+  input: GenerateRowsInput,
+): Promise<SheetResult<GenerateRowsResponse>> {
+  return request(
+    `/api/sheets/${enc(sheetId)}/rows/generate`,
+    {
+      method: "POST",
+      body: {
+        query: input.query,
+        max_results: input.max_results ?? 5,
+        ...(input.cap !== undefined ? { cap: input.cap } : {}),
+      },
+    },
+    201,
+    GenerateRowsResponseSchema,
   );
 }
 

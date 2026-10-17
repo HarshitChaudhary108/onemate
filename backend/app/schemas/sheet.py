@@ -70,6 +70,37 @@ class ImportRowsResponse(BaseModel):
     skipped: int
 
 
+class GenerateRowsRequest(BaseModel):
+    """List-building request (P9a): the company-finding query drives ONE
+    Exa ``category="company"`` search. ``max_results`` stays inside the
+    shared ≤5-per-call ``ExaSearchRequest`` cap — finding more companies
+    means repeated calls. ``cap`` refuses the call outright when even the
+    labelled estimate would exceed it."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    query: str = Field(min_length=1, max_length=2000)
+    max_results: int = Field(default=5, ge=1, le=5)
+    cap: float | None = Field(default=None, gt=0)
+
+
+class GenerateRowsResponse(BaseModel):
+    """Honest accounting: ``skipped`` counts hits that did not become
+    rows (missing/invalid URL, duplicate domain, sheet cap);
+    ``estimated_cost_usd`` is the labelled estimate; ``cost_usd`` is the
+    provider-reported spend only — ``None`` when the result carried no
+    usage; ``mock`` is provenance."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rows: list[Row]
+    created: int
+    skipped: int
+    estimated_cost_usd: float
+    cost_usd: float | None
+    mock: bool
+
+
 class PlanRequest(BaseModel):
     """One natural-language column request for the stateless planner."""
 

@@ -27,7 +27,10 @@ sources, and honest `unavailable` instead of invented answers:
 ### Sheets workspace (`/`)
 
 - Creates a sheet, **paste-imports** up to 100 companies per call (deduped by
-  normalized domain, hard cap 200 rows).
+  normalized domain, hard cap 200 rows), or **finds companies** with one
+  Exa `category="company"` search (`POST …/rows/generate` — hits become
+  pending rows, deduped identically; a labelled estimate is shown and the
+  optional `cap` refuses the call before any spend).
 - **Plans columns from a prompt**: a bounded Groq call proposes ≤ 3 columns
   (name, `{{…}}` template, output type, source scope, depth); the server
   re-validates everything the model claims — dependencies, unique names,
@@ -606,7 +609,9 @@ Recorded honestly per the project's verification vocabulary:
   ≈ $0.007 — the report pipeline only.
 - **Never live-tested:** every sheets path (planning, cell execution, SSE,
   persistence under real load), Exa `outputSchema`/`systemPrompt`/`deep`,
-  `grounding[].field` values for our schema, Groq model access and
+  `grounding[].field` values for our schema, company-search row generation
+  (`POST /api/sheets/{id}/rows/generate`, P9a — the `category="company"`
+  response shape is unverified against the live API), Groq model access and
   strict-schema responses, MoltSets (any endpoint, ever), real cost of any
   cell or run (U1 remains open — no measured cost exists anywhere).
 - **Locally run:** the app has been exercised end-to-end only where mock or
