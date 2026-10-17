@@ -563,6 +563,39 @@ async def mark_blocked(db_path: str, row_id: str, column_id: str, reason: str) -
     return _to_cell(row) if row is not None else None
 
 
+async def mark_cells_stale(db_path: str, column_ids: Sequence[str]) -> int:
+    """Mark done/error cells on the given columns stale.
+
+    Used when an upstream prompt edit invalidates downstream rendered
+    prompts — stale is set, values are never wiped.
+    """
+    if not column_ids:
+        return 0
+    placeholders = ", ".join("?" for _ in column_ids)
+    async with _write(db_path) as conn:
+        cursor = await conn.execute(
+            f"UPDATE cells SET stale = 1, updated_at = ? WHERE column_id IN ({placeholders})"
+            " AND status IN ('done', 'error')",
+            (_now(), *column_ids),
+        )
+        return cursor.rowcount
+
+
+async def requeue_cells(db_path: str, keys: Sequence[tuple[str, str]]) -> int:
+    """Graceful shutdown: specific ``running`` cells back to ``queued`` —
+    the scoped counterpart of :func:`requeue_orphans`."""
+    count = 0
+    async with _write(db_path) as conn:
+        for row_id, column_id in keys:
+            cursor = await conn.execute(
+                "UPDATE cells SET status = 'queued', updated_at = ?"
+                " WHERE row_id = ? AND column_id = ? AND status = 'running'",
+                (_now(), row_id, column_id),
+            )
+            count += cursor.rowcount
+    return count
+
+
 async def list_cell_revisions(db_path: str, row_id: str, column_id: str) -> list[CellRevision]:
     async with _read(db_path) as conn:
         rows = await _all(
@@ -613,6 +646,35 @@ async def cancel_run(db_path: str, run_id: str) -> Run | None:
         )
         row = await _one(conn, "SELECT * FROM runs WHERE id = ?", (run_id,))
     return _to_run(row) if row is not None else None
+
+
+async def stop_run(db_path: str, run_id: str, reason: str) -> Run | None:
+    """Stop a run early with a reason (cancel, cost cap, provider
+    401/402): flag it cancelled and return its still-queued cells to
+    idle — running cells are left alone."""
+    async with _write(db_path) as conn:
+        cursor = await conn.execute(
+            "UPDATE runs SET cancelled = 1, reason = ? WHERE id = ?",
+            (reason, run_id),
+        )
+        if cursor.rowcount != 1:
+            return None
+        await conn.execute(
+            "UPDATE cells SET status = 'idle', run_id = NULL, updated_at = ?"
+            " WHERE run_id = ? AND status = 'queued'",
+            (_now(), run_id),
+        )
+        row = await _one(conn, "SELECT * FROM runs WHERE id = ?", (run_id,))
+    return _to_run(row) if row is not None else None
+
+
+async def add_run_spend(db_path: str, run_id: str, amount: float) -> None:
+    """Add provider-reported spend to a run's ``spent`` total."""
+    async with _write(db_path) as conn:
+        await conn.execute(
+            "UPDATE runs SET spent = spent + ? WHERE id = ?",
+            (amount, run_id),
+        )
 
 
 # --- snapshot ---------------------------------------------------------------
