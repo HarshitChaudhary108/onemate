@@ -480,7 +480,18 @@ export function SheetGrid({
                     rowId={rowId}
                     rowIndex={virtualRow.index}
                     columnIds={columnOrder}
-                    activeCol={activeCell?.row === virtualRow.index ? activeCell.col : -1}
+                    // Roving tabindex needs one tabbable cell before any
+                    // cell has focus — row 0's pinned company cell is the
+                    // keyboard entry point (Tab in, then arrows).
+                    activeCol={
+                      activeCell === null
+                        ? virtualRow.index === 0
+                          ? 0
+                          : -1
+                        : activeCell.row === virtualRow.index
+                          ? activeCell.col
+                          : -1
+                    }
                     selectedCellKey={selectedCellKey ?? null}
                     newColumns={newColumns}
                     registerCell={registerCell}

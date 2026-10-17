@@ -4,6 +4,8 @@ prompt rendering, and ProviderError mapping.
 Fakes are in-memory (conftest); no fixture files, no network.
 """
 
+from typing import Any, Literal
+
 import pytest
 from conftest import FakeExa, make_column, make_row, structured_result, utcnow
 
@@ -16,7 +18,7 @@ from app.engine.cell_exec import (
     validate_value,
 )
 from app.errors.provider_error import ProviderError
-from app.providers.types import ExaSearchRequest, ExaSearchResult
+from app.providers.types import ExaOutput, ExaSearchRequest, ExaSearchResult
 from app.schemas.report import Field
 from app.sheets.models import CellValue, OutputType
 
@@ -128,6 +130,72 @@ def test_non_http_citation_is_dropped() -> None:
 def test_value_path_grounding_prefix_is_accepted() -> None:
     field = _map(structured_result(value="v", grounding_field="value[0]"))
     assert field.status == "verified"
+
+
+# -- A3 property test: no "verified" without a URL-bearing source --------------
+#
+# Exhaustive sweep over the §4.2 mapping inputs: wherever the mapper emits
+# ``verified`` it must carry at least one usable http(s) source URL. The
+# Field validator enforces the same rule structurally; this proves no path
+# through ``map_exa_result`` can reach it on citation-less evidence.
+
+
+@pytest.mark.parametrize("output_type", ["text", "number", "boolean", "enum", "url", "date"])
+@pytest.mark.parametrize("confidence", ["low", "medium", "high"])
+@pytest.mark.parametrize("grounding_field", ["value", "value[0]", "found", None])
+@pytest.mark.parametrize(
+    "citations",
+    [
+        [{"url": "https://evidence.test/claim", "title": "t"}],
+        [{"url": None, "title": "t"}],
+        [{"url": "javascript:alert(1)", "title": "t"}],
+        [{"url": "ftp://evidence.test/claim", "title": "t"}],
+        [],
+    ],
+)
+@pytest.mark.parametrize(
+    ("found", "value"),
+    [(True, "ok"), (True, ""), (True, None), (False, "ok"), (False, None)],
+)
+def test_verified_always_carries_a_url_source(
+    output_type: OutputType,
+    confidence: Literal["low", "medium", "high"],
+    grounding_field: str | None,
+    citations: list[dict[str, Any]],
+    found: bool,
+    value: Any,
+) -> None:
+    field = _map(
+        structured_result(
+            found=found,
+            value=value,
+            confidence=confidence,
+            grounding_field=grounding_field,
+            citations=citations,
+        ),
+        output_type=output_type,
+        enum_options=["ok", "no"],
+    )
+    if field.status == "verified":
+        assert field.sources
+        assert any(
+            source.url is not None and source.url.startswith("http") for source in field.sources
+        )
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        None,
+        ExaOutput(content="not-a-dict", grounding=[]),
+        ExaOutput(content=["found", "value"], grounding=[]),
+    ],
+)
+def test_verified_never_appears_without_usable_structured_output(
+    output: ExaOutput | None,
+) -> None:
+    field = _map(ExaSearchResult(hits=[], query="q", output=output, calls=1))
+    assert field.status == "unavailable"
 
 
 async def test_execute_cell_provider_error() -> None:
