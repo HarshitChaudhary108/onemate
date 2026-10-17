@@ -1,0 +1,205 @@
+{
+  "sheet": {
+    "id": "72754f6710ee4d16936bbbb7e7297a68",
+    "name": "Fixture targets",
+    "created_at": "2026-10-17T15:55:00.653499Z",
+    "updated_at": "2026-10-17T15:55:00.653499Z"
+  },
+  "rows": [
+    {
+      "id": "2953bcb07f88405ca842862bdc143c84",
+      "sheet_id": "72754f6710ee4d16936bbbb7e7297a68",
+      "input_name": "Acme Corp",
+      "input_domain": "acme.test",
+      "position": 0,
+      "identity_status": "resolved",
+      "resolved_name": "Acme Corp",
+      "resolved_domain": "acme.test",
+      "identity": {
+        "resolved": true,
+        "company_name": {
+          "value": "Acme Corp",
+          "status": "verified",
+          "sources": [
+            {
+              "provider": "Exa",
+              "mock": true,
+              "retrieved_at": "2026-10-17T15:55:00.669128Z",
+              "url": "https://acme.test/",
+              "title": "Acme Corp — synthetic",
+              "published_date": null,
+              "highlight": null,
+              "query": null
+            }
+          ],
+          "note": null
+        },
+        "domain": {
+          "value": "acme.test",
+          "status": "verified",
+          "sources": [
+            {
+              "provider": "Exa",
+              "mock": true,
+              "retrieved_at": "2026-10-17T15:55:00.669128Z",
+              "url": "https://acme.test/",
+              "title": "Acme Corp — synthetic",
+              "published_date": null,
+              "highlight": null,
+              "query": null
+            }
+          ],
+          "note": null
+        },
+        "note": null
+      },
+      "deleted": false,
+      "created_at": "2026-10-17T15:55:00.663885Z",
+      "updated_at": "2026-10-17T15:55:00.672128Z"
+    },
+    {
+      "id": "ebe1f68e7c4144e4bc6cc1bb3ae6b234",
+      "sheet_id": "72754f6710ee4d16936bbbb7e7297a68",
+      "input_name": "Globex",
+      "input_domain": null,
+      "position": 1,
+      "identity_status": "pending",
+      "resolved_name": null,
+      "resolved_domain": null,
+      "identity": null,
+      "deleted": false,
+      "created_at": "2026-10-17T15:55:00.663885Z",
+      "updated_at": "2026-10-17T15:55:00.663885Z"
+    }
+  ],
+  "columns": [
+    {
+      "id": "d8c7d91d57c84b4ab0f138afe8a15843",
+      "sheet_id": "72754f6710ee4d16936bbbb7e7297a68",
+      "name": "Industry",
+      "prompt_template": "What industry is {{Company}} in?",
+      "output_type": "text",
+      "enum_options": null,
+      "strategy": "research",
+      "source_scope": "web",
+      "depth": "standard",
+      "depends_on": [],
+      "version": 1,
+      "position": 0,
+      "deleted": false,
+      "created_at": "2026-10-17T15:55:00.679524Z",
+      "updated_at": "2026-10-17T15:55:00.679524Z"
+    },
+    {
+      "id": "446cfbad580247bea54b0e1a41b5d669",
+      "sheet_id": "72754f6710ee4d16936bbbb7e7297a68",
+      "name": "Headcount",
+      "prompt_template": "Headcount of {{Company}}; industry context: {{Industry}}",
+      "output_type": "number",
+      "enum_options": null,
+      "strategy": "research",
+      "source_scope": "web",
+      "depth": "standard",
+      "depends_on": [
+        "Industry"
+      ],
+      "version": 1,
+      "position": 1,
+      "deleted": false,
+      "created_at": "2026-10-17T15:55:00.688762Z",
+      "updated_at": "2026-10-17T15:55:00.688762Z"
+    }
+  ],
+  "cells": [
+    {
+      "row_id": "2953bcb07f88405ca842862bdc143c84",
+      "column_id": "d8c7d91d57c84b4ab0f138afe8a15843",
+      "status": "done",
+      "result": {
+        "value": "Industrial robotics",
+        "status": "verified",
+        "sources": [
+          {
+            "provider": "Exa",
+            "mock": true,
+            "retrieved_at": "2026-10-17T15:55:00.759128Z",
+            "url": "https://acme.test/about",
+            "title": "About Acme — synthetic",
+            "published_date": null,
+            "highlight": null,
+            "query": null
+          }
+        ],
+        "note": null
+      },
+      "column_version": 1,
+      "stale": false,
+      "revision": 1,
+      "cost": 0.007,
+      "rendered_prompt": "What industry is Acme Corp in?",
+      "error": null,
+      "run_id": "c7cef9a389f34d1491ed2d0745ed837e",
+      "created_at": "2026-10-17T15:55:00.703003Z",
+      "updated_at": "2026-10-17T15:55:00.762616Z"
+    },
+    {
+      "row_id": "2953bcb07f88405ca842862bdc143c84",
+      "column_id": "446cfbad580247bea54b0e1a41b5d669",
+      "status": "queued",
+      "result": null,
+      "column_version": 1,
+      "stale": false,
+      "revision": 0,
+      "cost": null,
+      "rendered_prompt": null,
+      "error": null,
+      "run_id": "c7cef9a389f34d1491ed2d0745ed837e",
+      "created_at": "2026-10-17T15:55:00.711509Z",
+      "updated_at": "2026-10-17T15:55:00.744093Z"
+    },
+    {
+      "row_id": "ebe1f68e7c4144e4bc6cc1bb3ae6b234",
+      "column_id": "d8c7d91d57c84b4ab0f138afe8a15843",
+      "status": "done",
+      "result": {
+        "value": null,
+        "status": "unavailable",
+        "sources": [],
+        "note": "found=false"
+      },
+      "column_version": 1,
+      "stale": false,
+      "revision": 1,
+      "cost": 0.007,
+      "rendered_prompt": "What industry is Globex in?",
+      "error": null,
+      "run_id": "c7cef9a389f34d1491ed2d0745ed837e",
+      "created_at": "2026-10-17T15:55:00.722642Z",
+      "updated_at": "2026-10-17T15:55:00.786899Z"
+    },
+    {
+      "row_id": "ebe1f68e7c4144e4bc6cc1bb3ae6b234",
+      "column_id": "446cfbad580247bea54b0e1a41b5d669",
+      "status": "blocked",
+      "result": null,
+      "column_version": 1,
+      "stale": false,
+      "revision": 0,
+      "cost": null,
+      "rendered_prompt": null,
+      "error": "upstream cell unavailable: Industry",
+      "run_id": "c7cef9a389f34d1491ed2d0745ed837e",
+      "created_at": "2026-10-17T15:55:00.729851Z",
+      "updated_at": "2026-10-17T15:55:00.794750Z"
+    }
+  ],
+  "latest_run": {
+    "id": "c7cef9a389f34d1491ed2d0745ed837e",
+    "sheet_id": "72754f6710ee4d16936bbbb7e7297a68",
+    "cap": 1.0,
+    "spent": 0.007,
+    "cancelled": false,
+    "reason": null,
+    "created_at": "2026-10-17T15:55:00.734427Z"
+  }
+}
