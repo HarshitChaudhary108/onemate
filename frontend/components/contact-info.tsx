@@ -47,7 +47,7 @@ export function ContactInfo({ field }: { field: Report["contact_information"] })
             <dl className="mt-1 space-y-0.5 text-sm">
               {item.business_email ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <dt className="text-xs uppercase tracking-wide text-ink-muted">Business email</dt>
+                  <dt className="text-xs font-mono uppercase tracking-wide text-ink-muted">Business email</dt>
                   <dd className="inline-flex items-center gap-1 text-ink">
                     <Mail aria-hidden="true" className="h-3.5 w-3.5 text-ink-muted" />
                     {item.business_email}
@@ -56,13 +56,13 @@ export function ContactInfo({ field }: { field: Report["contact_information"] })
               ) : null}
               {item.email_risk_grade ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <dt className="text-xs uppercase tracking-wide text-ink-muted">Risk grade</dt>
+                  <dt className="text-xs font-mono uppercase tracking-wide text-ink-muted">Risk grade</dt>
                   <dd className="text-ink">{item.email_risk_grade}</dd>
                 </div>
               ) : null}
               {formatDate(item.email_last_validated) ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <dt className="text-xs uppercase tracking-wide text-ink-muted">Last validated</dt>
+                  <dt className="text-xs font-mono uppercase tracking-wide text-ink-muted">Last validated</dt>
                   <dd className="text-ink">{formatDate(item.email_last_validated)}</dd>
                 </div>
               ) : null}

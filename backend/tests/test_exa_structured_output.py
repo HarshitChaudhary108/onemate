@@ -79,6 +79,33 @@ async def test_legacy_request_body_byte_identical() -> None:
     }
 
 
+async def test_contents_omitted_when_include_contents_false() -> None:
+    """``include_contents=False`` drops ``contents`` — nothing else changes."""
+    request = ExaSearchRequest(
+        query="Example Robotics Ltd",
+        category="company",
+        include_domains=["example-robotics.test"],
+        include_contents=False,
+    )
+    _, route = await _run_search(request, SYNTHETIC_SEARCH_PAYLOAD)
+    body = json.loads(route.calls[0].request.content)
+    assert body == {
+        "query": "Example Robotics Ltd",
+        "type": "auto",
+        "numResults": 5,
+        "category": "company",
+        "includeDomains": ["example-robotics.test"],
+    }
+
+
+async def test_fast_search_type_serializes() -> None:
+    """``search_type="fast"`` maps to the documented ``type`` field."""
+    request = ExaSearchRequest(query="Example Robotics Ltd", search_type="fast")
+    _, route = await _run_search(request, SYNTHETIC_SEARCH_PAYLOAD)
+    body = json.loads(route.calls[0].request.content)
+    assert body["type"] == "fast"
+
+
 async def test_structured_request_body_contains_new_fields() -> None:
     request = ExaSearchRequest(
         query="Example Robotics Ltd revenue",

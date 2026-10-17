@@ -11,8 +11,8 @@ import { formatUsd } from "@/lib/utils/cell-format";
  * List-building dialog (P9a): the user describes companies to find and ONE
  * Exa `category="company"` search runs server-side; hits become pending
  * rows identical to pasted ones (domain only — a name is never guessed
- * from a hit title). Nothing auto-runs: generated rows resolve identity
- * inside the next run the user starts.
+ * from a hit title). Generated rows then verify their identity in a
+ * background pass — no cell run.
  *
  * The estimate is LABELLED an estimate (D11) — the documented `/search`
  * upper bound — and the summary shows only provider-reported cost.
@@ -86,8 +86,8 @@ export function GenerateRowsDialog({
             </h2>
             <p className="mt-1 text-xs text-ink-muted">
               One Exa company search turns your query into pending rows (at most 5 per
-              call — run it again for more). New rows resolve their identity inside the
-              next run you start; nothing runs automatically.
+              call — run it again for more). New rows verify their identity
+              automatically in the background — no cell run needed.
             </p>
           </div>
           <button

@@ -33,7 +33,7 @@ export function OverviewSection({ report }: { report: Report }) {
         {rows.map((row) => (
           <div key={row.key} data-testid={`overview-${row.key}`}>
             <div className="flex flex-wrap items-start justify-between gap-2">
-              <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+              <dt className="text-xs font-mono font-medium uppercase tracking-wide text-ink-muted">
                 {row.label}
               </dt>
               <StatusBadge status={row.field.status} sources={row.field.sources} />

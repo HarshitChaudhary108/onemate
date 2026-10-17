@@ -37,9 +37,15 @@ class ExaSearchRequest(BaseModel):
     end_published_date: str | None = None
     # Structured output (plan §1.2): ``deep-reasoning`` is never legal — the
     # 30 s adapter timeout is too short for it, so it stays out of the MVP.
-    search_type: Literal["auto", "deep"] = "auto"
+    # ``fast`` is the documented low-latency type (docs/provider-notes.md)
+    # used by identity lookups; everything else keeps the ``auto`` default.
+    search_type: Literal["auto", "deep", "fast"] = "auto"
     system_prompt: str | None = None
     output_schema: dict[str, Any] | None = None
+    # ``False`` omits ``contents`` from the request body — for lookups that
+    # need only hit URLs/titles (identity resolution). The default
+    # preserves the legacy body for every existing caller.
+    include_contents: bool = True
 
     @model_validator(mode="after")
     def _date_filters_need_news_category(self) -> "ExaSearchRequest":

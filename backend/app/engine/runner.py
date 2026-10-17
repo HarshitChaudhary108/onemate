@@ -6,9 +6,16 @@ token-bucket limiter at ``exa_max_qps`` and a per-run cost cap.
 - IDENTITY FIRST: newly imported rows (``identity_status == "pending"``)
   with queued cells are resolved through ``resolve_identity`` — one
   primary ``identity_query`` plus at most one
-  ``identity_fallback_query`` — before any cell on the row runs.
+  ``identity_fallback_query``, contents-free ``fast``-type searches
+  (hit URLs/titles only) bounded by the same ``max_concurrency`` as
+  cell workers — before any
+  cell on the row runs.
   Unresolved rows keep their identity status and EVERY cell on the row
   becomes blocked with the reason; no cell on such a row reaches Exa.
+- IMPORT/GENERATE VERIFICATION: the API layer also calls
+  :meth:`SheetRunner.resolve_pending_identities` — an identity-only
+  background pass using the same resolution path so new rows verify
+  immediately instead of waiting for the first column run.
 - Claiming is atomic through ``repo.claim_cell``. ``queued -> blocked``
   when an upstream cell errored or is unavailable; dependencies are
   evaluated per row against the column DAG.
@@ -60,6 +67,19 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def _identity_request(request: ExaSearchRequest) -> ExaSearchRequest:
+    """Mark an identity search contents-free and low-latency.
+
+    ``resolve_identity`` consumes only hit ``url`` and ``title`` — never
+    ``highlights`` — so the provider call skips per-hit page contents,
+    the expensive part of an identity lookup, and runs the documented
+    low-latency ``fast`` search type instead of the heavier ``auto``
+    ranking it does not need. Query, category and domain filters are
+    unchanged.
+    """
+    return request.model_copy(update={"include_contents": False, "search_type": "fast"})
+
+
 @dataclass
 class _RunContext:
     """In-memory view of one run's grid state.
@@ -77,8 +97,15 @@ class _RunContext:
     cells: dict[tuple[str, str], Cell]
     pending: set[tuple[str, str]] = field(default_factory=set)
     running: dict[asyncio.Task[None], tuple[str, str]] = field(default_factory=dict)
+    # In-flight identity-resolution tasks — tracked separately from cell
+    # workers so graceful shutdown can cancel them too.
+    identity_tasks: set[asyncio.Task[None]] = field(default_factory=set)
     stop_reason: str | None = None
     cancel_requested: bool = False
+    # Identity-only background pass (import/generate verification):
+    # resolves every pending row, never blocks idle cells, and yields
+    # to a real run the moment one starts on the sheet.
+    identity_only: bool = False
 
 
 class SheetRunner:
@@ -104,8 +131,9 @@ class SheetRunner:
         self._limiter = limiter or RateLimiter(qps)
         self._clock = clock or _utcnow
         self._active: dict[str, _RunContext] = {}
-        self._tasks: set[asyncio.Task[Run]] = set()
+        self._tasks: set[asyncio.Task[object]] = set()
         self._launching: set[str] = set()
+        self._identity_passes: dict[str, asyncio.Task[None]] = {}
         self._closing = False
 
     async def run(
@@ -150,7 +178,7 @@ class SheetRunner:
         task.add_done_callback(self._task_done)
         return ctx.run
 
-    def _task_done(self, task: asyncio.Task[Run]) -> None:
+    def _task_done(self, task: asyncio.Task[object]) -> None:
         self._tasks.discard(task)
         if task.cancelled():
             return
@@ -217,6 +245,56 @@ class SheetRunner:
         final = await repo.get_run(self._db, ctx.run.id)
         return final if final is not None else ctx.run
 
+    async def resolve_pending_identities(self, sheet_id: str) -> None:
+        """Verify pending row identities in the background — no cell run.
+
+        Imported/generated rows arrive ``pending``; waiting for the first
+        user-chosen run left them unverified in the grid. This pass runs
+        the same queries, limiter, budget cap and row-event publishing as
+        the run identity phase, but queues no cells and never blocks idle
+        cells — an unresolved row stays ``unresolved`` with its cells
+        untouched for a later real run. Spend is recorded on a run row
+        with ``reason="identity"`` for honest accounting; the pass does
+        not publish run events or hold the sheet's run slot.
+
+        No-op while a run is active or a pass is already in flight —
+        the run's own identity phase covers those rows.
+        """
+        if (
+            self._closing
+            or sheet_id in self._identity_passes
+            or sheet_id in self._launching
+            or self.active_run_for(sheet_id) is not None
+        ):
+            return
+        snap = await repo.snapshot(self._db, sheet_id)
+        if snap is None or not any(row.identity_status == "pending" for row in snap.rows):
+            return
+        run = await repo.create_run(self._db, sheet_id, cap=self._default_cap, reason="identity")
+        ctx = _RunContext(
+            run=run,
+            sheet_id=sheet_id,
+            budget=Budget(cap=self._default_cap),
+            rows={row.id: row for row in snap.rows},
+            columns={column.id: column for column in snap.columns},
+            columns_by_name={column.name: column for column in snap.columns},
+            cells={(cell.row_id, cell.column_id): cell for cell in snap.cells},
+            identity_only=True,
+        )
+        task = asyncio.create_task(self._execute_identity(ctx))
+        self._identity_passes[sheet_id] = task
+        self._tasks.add(task)
+        task.add_done_callback(self._task_done)
+
+    async def _execute_identity(self, ctx: _RunContext) -> None:
+        """Identity-only background pass: resolve, record spend, exit."""
+        try:
+            await self._resolve_pending_rows(ctx)
+        finally:
+            self._identity_passes.pop(ctx.sheet_id, None)
+            if ctx.stop_reason:
+                await repo.stop_run(self._db, ctx.run.id, ctx.stop_reason)
+
     async def cancel(self, run_id: str) -> bool:
         """Ask a live run to stop: queued cells return to idle once the
         in-flight workers settle."""
@@ -232,7 +310,9 @@ class SheetRunner:
         startup. Queued cells stay queued for the next start."""
         self._closing = True
         contexts = list(self._active.values())
-        tasks = [task for ctx in contexts for task in ctx.running]
+        tasks = [task for ctx in contexts for task in (*ctx.running, *ctx.identity_tasks)] + list(
+            self._identity_passes.values()
+        )
         for task in tasks:
             task.cancel()
         if tasks:
@@ -250,17 +330,49 @@ class SheetRunner:
 
     async def _resolve_pending_rows(self, ctx: _RunContext) -> None:
         """Resolve identity for pending rows that have queued cells —
-        before any cell dispatch."""
+        before any cell dispatch.
+
+        Bounded concurrency: up to ``max_concurrency`` rows resolve in
+        parallel behind the SAME rate limiter the cell workers use. The
+        semaphore gate is re-checked after acquisition, so a fatal
+        provider error (401/402), a cost cap, a cancel or a shutdown stops
+        scheduling new resolutions while in-flight ones settle. The phase
+        still completes fully before :meth:`_dispatch` starts.
+        """
         queued_rows = {row_id for row_id, _ in ctx.pending}
         pending = [
             row
             for row in sorted(ctx.rows.values(), key=lambda r: r.position)
-            if row.identity_status == "pending" and row.id in queued_rows
+            if row.identity_status == "pending" and (ctx.identity_only or row.id in queued_rows)
         ]
-        for row in pending:
-            if self._closing or ctx.stop_reason or ctx.cancel_requested:
-                return
-            await self._resolve_one_row(ctx, row)
+        semaphore = asyncio.Semaphore(self._max_concurrency)
+
+        async def worker(row: Row) -> None:
+            async with semaphore:
+                if (
+                    self._closing
+                    or ctx.stop_reason
+                    or ctx.cancel_requested
+                    # An identity-only pass yields to a real run — the
+                    # run's own identity phase takes the rest.
+                    or (ctx.identity_only and self.active_run_for(ctx.sheet_id) is not None)
+                ):
+                    return
+                await self._resolve_one_row(ctx, row)
+
+        tasks = {asyncio.create_task(worker(row)) for row in pending}
+        ctx.identity_tasks = tasks
+        try:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+        finally:
+            ctx.identity_tasks = set()
+        for result in results:
+            if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
+                # ProviderError is already handled inside _resolve_one_row;
+                # anything here is an unexpected bug — log it like the
+                # cell-worker path and leave the row unresolved (its cells
+                # will block as "identity not resolved" at dispatch).
+                logger.error("identity resolution failed: %s", result)
 
     async def _search(self, ctx: _RunContext, request: ExaSearchRequest) -> ExaSearchResult | None:
         """Rate-limited, budget-checked Exa call; ``None`` when the cap
@@ -284,7 +396,9 @@ class SheetRunner:
             except DomainError:
                 domain = None  # import validates domains; defensive only
         try:
-            result = await self._search(ctx, identity_query(row.input_name, domain))
+            result = await self._search(
+                ctx, _identity_request(identity_query(row.input_name, domain))
+            )
             if result is None:
                 return
             resolution = resolve_identity(row.input_name, domain, result, self._clock)
@@ -293,7 +407,9 @@ class SheetRunner:
                 and domain is not None
                 and resolution.note == "no evidence for this domain"
             ):
-                result = await self._search(ctx, identity_fallback_query(row.input_name, domain))
+                result = await self._search(
+                    ctx, _identity_request(identity_fallback_query(row.input_name, domain))
+                )
                 if result is None:
                     return
                 resolution = resolve_identity(row.input_name, domain, result, self._clock)
@@ -303,7 +419,8 @@ class SheetRunner:
                 return
             await repo.update_row_identity(self._db, row.id, identity_status="error")
             row.identity_status = "error"
-            await self._block_row_cells(ctx, row, f"identity check failed: {exc.message}")
+            if not ctx.identity_only:
+                await self._block_row_cells(ctx, row, f"identity check failed: {exc.message}")
             return
 
         if resolution.resolved and resolution.domain_key is not None:
@@ -331,7 +448,10 @@ class SheetRunner:
         row.identity_status = status
         row.identity = identity
         self._publish_row(ctx, row)
-        await self._block_row_cells(ctx, row, resolution.note or "identity unresolved")
+        if not ctx.identity_only:
+            # Idle cells keep their state on a verification-only pass;
+            # a real run will block them at dispatch with the same reason.
+            await self._block_row_cells(ctx, row, resolution.note or "identity unresolved")
 
     async def _block_row_cells(self, ctx: _RunContext, row: Row, reason: str) -> None:
         for key, cell in list(ctx.cells.items()):

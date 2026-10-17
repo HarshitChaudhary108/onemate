@@ -90,7 +90,7 @@ export function CellInspector({
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4 text-sm">
         <section>
-          <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Value</p>
+          <p className="text-xs font-mono font-medium uppercase tracking-wide text-ink-muted">Value</p>
           {cell?.status === "done" && result ? (
             <div className="mt-1 space-y-2">
               {valueText !== null ? (
@@ -144,7 +144,7 @@ export function CellInspector({
 
         {cell?.rendered_prompt ? (
           <section>
-            <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+            <p className="text-xs font-mono font-medium uppercase tracking-wide text-ink-muted">
               Rendered prompt
             </p>
             <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-card bg-surface-muted p-2 font-mono text-xs text-ink">
@@ -154,7 +154,7 @@ export function CellInspector({
         ) : null}
 
         <section>
-          <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Details</p>
+          <p className="text-xs font-mono font-medium uppercase tracking-wide text-ink-muted">Details</p>
           <dl className="mt-1 space-y-1 text-xs text-ink-muted">
             {typeof cell?.cost === "number" ? (
               <div className="flex justify-between gap-2">
@@ -182,7 +182,7 @@ export function CellInspector({
         </section>
 
         <section>
-          <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+          <p className="text-xs font-mono font-medium uppercase tracking-wide text-ink-muted">
             Revision history
           </p>
           {revisions === null ? (

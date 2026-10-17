@@ -161,6 +161,10 @@ async def import_rows(sheet_id: str, body: ImportRowsRequest, deps: Deps) -> Imp
         sheet_id,
         [RowInput(input_name=row.name, input_domain=row.domain) for row in body.rows],
     )
+    if created and deps.runner is not None:
+        # Verify the new rows' identities in the background instead of
+        # leaving them "pending" until the first column run.
+        await deps.runner.resolve_pending_identities(sheet_id)
     return ImportRowsResponse(
         rows=created,
         created=len(created),
@@ -173,9 +177,9 @@ async def generate_rows(
     sheet_id: str, body: GenerateRowsRequest, deps: Deps
 ) -> GenerateRowsResponse:
     """List-building (P9a): ONE bounded Exa ``category="company"`` search;
-    hits become pending rows deduped exactly like pasted rows. Nothing
-    auto-runs — generated rows resolve identity inside the next run the
-    user chooses. No Exa key is a 503, never a silent mock."""
+    hits become pending rows deduped exactly like pasted rows. Generated
+    rows then verify their identity in a background pass — no cell run.
+    No Exa key is a 503, never a silent mock."""
     exa = deps.providers.exa
     if exa is None:
         raise ResearchUnavailable(
@@ -195,6 +199,8 @@ async def generate_rows(
         # through onto ResearchUnavailable (503 for not_configured, else
         # 502) via the shared handler.
         raise ResearchUnavailable(code=exc.code, message=exc.message) from exc
+    if generated.rows and deps.runner is not None:
+        await deps.runner.resolve_pending_identities(sheet_id)
     return GenerateRowsResponse(
         rows=generated.rows,
         created=len(generated.rows),

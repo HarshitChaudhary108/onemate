@@ -3,24 +3,24 @@
 /*
  * Outmate visual system (spec section 9).
  *
- * Refined light theme: warm off-white page, near-white surfaces, deep
- * slate/navy text, ONE indigo accent for primary actions and links. All
+ * High-contrast monochrome theme: white page and surfaces, near-black
+ * text, ONE vivid violet accent for primary actions and links. All
  * colours live here as theme tokens — components only use the generated
  * Tailwind utilities (bg-page, text-ink, border-line, ...).
  */
 @theme {
-  --color-page: #faf8f5;
-  --color-surface: #fffdfb;
-  --color-surface-muted: #f5f2ed;
-  --color-ink-strong: #16202e;
-  --color-ink: #2b3648;
-  --color-ink-muted: #5c6779;
-  --color-line: #e6e0d7;
-  --color-line-strong: #d6cec2;
-  --color-accent: #4f46e5;
-  --color-accent-strong: #4338ca;
-  --color-accent-soft: #eef2ff;
-  --color-accent-line: #c7d2fe;
+  --color-page: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f5f5f5;
+  --color-ink-strong: #0b0b0d;
+  --color-ink: #202124;
+  --color-ink-muted: #777777;
+  --color-line: #e5e5e5;
+  --color-line-strong: #cccccc;
+  --color-accent: #5546f5;
+  --color-accent-strong: #4032d5;
+  --color-accent-soft: #efedff;
+  --color-accent-line: #cac4ff;
 
   /* Status palettes: always paired with a text label and an icon. */
   --color-verified-bg: #ecfdf5;
@@ -39,19 +39,19 @@
   --color-danger-line: #fecaca;
   --color-danger-ink: #991b1b;
 
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
+    monospace;
 
   --radius-card: 0.75rem;
-  --shadow-card: 0 1px 2px rgb(22 32 46 / 0.04), 0 1px 3px rgb(22 32 46 / 0.06);
+  --shadow-card: 0 1px 2px rgb(11 11 13 / 0.04), 0 1px 3px rgb(11 11 13 / 0.06);
 
   /* Grid tokens (P7) — additive only; the palettes above are untouched. */
-  --color-grid-row-hover: #f1ede6;
+  --color-grid-row-hover: #f5f5f5;
   --color-grid-ring: var(--color-accent);
-  --shadow-grid-sticky-col: 6px 0 8px -6px rgb(22 32 46 / 0.18);
-  --shadow-grid-sticky-head: 0 6px 8px -6px rgb(22 32 46 / 0.18);
+  --shadow-grid-sticky-col: 6px 0 8px -6px rgb(11 11 13 / 0.18);
+  --shadow-grid-sticky-head: 0 6px 8px -6px rgb(11 11 13 / 0.18);
 
   --animate-column-in: column-in 180ms ease-out;
   @keyframes column-in {

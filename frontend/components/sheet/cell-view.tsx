@@ -105,12 +105,12 @@ export const CellView = memo(function CellView({
     const reason = cell?.error ?? "blocked by an upstream column";
     return (
       <span
-        className="flex items-center gap-1.5 text-ink-muted"
+        className="flex min-w-0 max-w-full items-center gap-1.5 text-ink-muted"
         data-state="blocked"
         title={reason}
       >
         <Ban aria-hidden="true" className="h-3 w-3 shrink-0" />
-        <span className="truncate text-xs">{reason}</span>
+        <span className="min-w-0 truncate text-xs">{reason}</span>
       </span>
     );
   }
@@ -119,12 +119,12 @@ export const CellView = memo(function CellView({
     const message = cell?.error ?? "the cell run failed";
     return (
       <span
-        className="flex items-center gap-1.5 text-danger-ink"
+        className="flex min-w-0 max-w-full items-center gap-1.5 text-danger-ink"
         data-state="error"
         title={message}
       >
         <TriangleAlert aria-hidden="true" className="h-3 w-3 shrink-0" />
-        <span className="truncate text-xs">{message}</span>
+        <span className="min-w-0 truncate text-xs">{message}</span>
         {onRetry ? (
           <button
             type="button"
@@ -149,7 +149,7 @@ export const CellView = memo(function CellView({
   const text = formatCellValue(result?.value, outputType);
   const mock = (result?.sources ?? []).some((source) => source.mock);
   return (
-    <span className="flex items-center gap-1.5" data-state="done">
+    <span className="flex min-w-0 max-w-full items-center gap-1.5" data-state="done">
       <span
         className={`min-w-0 truncate ${outputType === "number" ? "tabular-nums" : ""} ${
           text === null ? "text-ink-muted" : "text-ink"

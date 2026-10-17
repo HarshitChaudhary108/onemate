@@ -24,7 +24,7 @@ export function SourceList({
 
   return (
     <div className={className}>
-      <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">{label}</p>
+      <p className="text-xs font-mono font-medium uppercase tracking-wide text-ink-muted">{label}</p>
       <ul className="mt-1 space-y-1.5">
         {items.map((source, index) => {
           const href = safeExternalUrl(source.url);

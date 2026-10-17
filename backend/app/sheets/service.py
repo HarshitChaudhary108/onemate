@@ -202,10 +202,11 @@ class SheetService:
         """List-building (P9a): ONE Exa ``category="company"`` search whose
         hits are imported exactly like pasted rows — ``input_domain`` only
         (a name is NEVER guessed from a hit title), ``identity_status``
-        "pending", resolved inside the next user-chosen run.
+        "pending" — the API layer then verifies them in a background
+        identity pass (``SheetRunner.resolve_pending_identities``).
 
-        Nothing auto-runs: generation creates idle cells only and no
-        ``runs`` row exists — the search spend travels in this response.
+        Generation creates idle cells only; the search spend travels in
+        this response.
         The cap is enforced BEFORE the call against the labelled estimate,
         so a request that could spend past the cap is refused outright.
         """

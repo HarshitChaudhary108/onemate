@@ -205,7 +205,7 @@ const GridRow = memo(function GridRow({
         data-cell-key={cellKey(rowId, columnId)}
         onFocus={() => onFocusCell(rowIndex, colIndex)}
         onDoubleClick={() => onInspectCell(rowId, columnId)}
-        className={`h-full w-[220px] shrink-0 border-r border-line px-0 outline-none ${
+        className={`h-full w-[220px] shrink-0 overflow-hidden border-r border-line px-0 outline-none ${
           activeCol === colIndex
             ? "shadow-[inset_0_0_0_2px_var(--color-grid-ring)]"
             : ""
@@ -213,7 +213,7 @@ const GridRow = memo(function GridRow({
           animate ? "animate-column-in" : ""
         }`}
       >
-        <div className="flex h-full items-center px-2">
+        <div className="flex h-full min-w-0 items-center px-2">
           <SheetCellView rowId={rowId} columnId={columnId} onRetry={onRetryErrors} />
         </div>
       </div>
@@ -436,7 +436,7 @@ export function SheetGrid({
             aria-colindex={1}
             className="sticky left-0 z-30 flex w-[240px] shrink-0 items-center border-r border-line bg-surface px-2 shadow-(--shadow-grid-sticky-col)"
           >
-            <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            <span className="text-xs font-mono font-semibold uppercase tracking-wide text-ink-muted">
               Company
             </span>
           </div>

@@ -30,7 +30,7 @@ export function ReportHeader({ report }: { report: Report }) {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+          <p className="text-xs font-mono font-medium uppercase tracking-wide text-ink-muted">
             {identity.resolved ? "Company" : "Unresolved identity"}
           </p>
           <h2 className="mt-1 text-2xl font-semibold tracking-tight text-ink-strong">
@@ -60,17 +60,17 @@ export function ReportHeader({ report }: { report: Report }) {
 
       <dl className="mt-4 grid gap-3 border-t border-line pt-4 text-sm sm:grid-cols-3">
         <div>
-          <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">Coverage</dt>
+          <dt className="text-xs font-mono font-medium uppercase tracking-wide text-ink-muted">Coverage</dt>
           <dd className="mt-0.5 text-ink">
             {coverage.present} of {coverage.total} factual fields have a value
           </dd>
         </div>
         <div>
-          <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">Data mode</dt>
+          <dt className="text-xs font-mono font-medium uppercase tracking-wide text-ink-muted">Data mode</dt>
           <dd className="mt-0.5 text-ink">{dataModeLabel(report)}</dd>
         </div>
         <div>
-          <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">Request</dt>
+          <dt className="text-xs font-mono font-medium uppercase tracking-wide text-ink-muted">Request</dt>
           <dd className="mt-0.5 font-mono text-xs text-ink-muted">
             {report.request_id}
             {generated ? <span> · {generated}</span> : null}

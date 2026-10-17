@@ -177,8 +177,9 @@ class HttpExaProvider:
             "query": request.query,
             "type": request.search_type,
             "numResults": request.num_results,
-            "contents": {"highlights": True},
         }
+        if request.include_contents:
+            body["contents"] = {"highlights": True}
         if request.category:
             body["category"] = request.category
         if request.include_domains:

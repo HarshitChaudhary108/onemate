@@ -23,7 +23,7 @@ export const ColumnHeader = memo(function ColumnHeader({
   }
   return (
     <span className="flex h-full items-center justify-between gap-2 px-2">
-      <span className="truncate font-medium text-ink-strong" title={column.name}>
+      <span className="min-w-0 truncate font-medium text-ink-strong" title={column.name}>
         {column.name}
       </span>
       <span className="shrink-0 font-mono text-[0.65rem] uppercase tracking-wide text-ink-muted">

@@ -71,7 +71,7 @@ export function ProviderStatus({ report }: { report: Report }) {
 
       {report.errors.length > 0 ? (
         <div className="mt-4">
-          <h3 className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+          <h3 className="text-xs font-mono font-medium uppercase tracking-wide text-ink-muted">
             Errors this run
           </h3>
           <ul className="mt-2 space-y-3">
@@ -83,7 +83,7 @@ export function ProviderStatus({ report }: { report: Report }) {
                   data-testid="report-error"
                   className="rounded-card border border-danger-line bg-danger-bg p-3 text-sm text-danger-ink"
                 >
-                  <p className="text-xs font-medium uppercase tracking-wide">
+                  <p className="text-xs font-mono font-medium uppercase tracking-wide">
                     {error.provider} · {humanizeToken(error.stage)}
                   </p>
                   <p className="mt-1">{error.message}</p>

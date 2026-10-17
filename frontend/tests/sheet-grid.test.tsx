@@ -317,6 +317,66 @@ describe("P7 gate — a cell event or a new column never re-renders the grid", (
   });
 });
 
+// --- overflow containment --------------------------------------------------------
+// jsdom cannot measure layout overflow, so these assert the containment
+// contract: the fixed-width gridcell clips, the value text is a shrinking
+// flex item that ellipsizes, the full value stays reachable via title,
+// and cell-state controls still render.
+
+describe("cell overflow containment", () => {
+  const LONG_VALUE = "unbrokenvaluewithnospacesatall".repeat(10);
+
+  function hydrateLongValue() {
+    const snapshot = makeSnapshot(2, 1);
+    snapshot.cells[0] = {
+      ...snapshot.cells[0],
+      status: "done",
+      revision: 1,
+      result: { value: LONG_VALUE, status: "verified" },
+    };
+    hydrate(snapshot);
+  }
+
+  it("a long unbroken value is inside a clipped cell on a shrinking, truncating text node", () => {
+    hydrateLongValue();
+    render(<SheetGrid onInspectCell={vi.fn()} />);
+
+    const gridcell = document.querySelector<HTMLElement>('[data-cell-key="r0:c0"]');
+    expect(gridcell).not.toBeNull();
+    expect(gridcell!.className).toContain("overflow-hidden");
+    expect(gridcell!.className).toContain("w-[220px]");
+
+    const text = screen.getByText(LONG_VALUE);
+    expect(text.className).toContain("truncate");
+    expect(text.className).toContain("min-w-0");
+    expect(text.closest('[data-state="done"]')!.className).toContain("min-w-0");
+    // The complete value remains accessible via the existing tooltip.
+    expect(text).toHaveAttribute("title", LONG_VALUE);
+  });
+
+  it("a done cell keeps its status mark next to a truncated long value", () => {
+    hydrateLongValue();
+    render(<SheetGrid onInspectCell={vi.fn()} />);
+    expect(screen.getByText("Verified")).toBeInTheDocument();
+  });
+
+  it("an error cell keeps its retry control clickable alongside a long message", async () => {
+    const user = userEvent.setup();
+    const onRetryErrors = vi.fn();
+    const snapshot = makeSnapshot(2, 1);
+    snapshot.cells[0] = {
+      ...snapshot.cells[0],
+      status: "error",
+      error: "provider timed out after a very long explanation ".repeat(5),
+    };
+    hydrate(snapshot);
+    render(<SheetGrid onInspectCell={vi.fn()} onRetryErrors={onRetryErrors} />);
+
+    await user.click(screen.getByRole("button", { name: /retry/i }));
+    expect(onRetryErrors).toHaveBeenCalledTimes(1);
+  });
+});
+
 // --- toolbar true counts ---------------------------------------------------------
 
 describe("SheetToolbar run progress", () => {
