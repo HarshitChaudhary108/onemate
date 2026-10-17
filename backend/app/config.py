@@ -19,6 +19,15 @@ class Settings(BaseSettings):
     moltsets_api_key: SecretStr | None = None
     moltsets_mode: Literal["live", "mock", "off"] = "live"
     moltsets_user_agent: str = "outmate-prototype/1.0"
+    groq_api_key: SecretStr | None = None
+    groq_mode: Literal["live", "mock"] = "live"
+    planner_model: str = "openai/gpt-oss-120b"
+    sheets_db_path: str = "sheets.db"
+    sheet_max_rows: int = 200
+    sheet_max_columns: int = 30
+    sheet_max_concurrency: int = 4
+    exa_max_qps: int = 5
+    run_cost_cap_usd: float = 1.00
     cors_origins: str = "http://localhost:3000"
 
     @property
@@ -37,6 +46,11 @@ class Settings(BaseSettings):
         return self.moltsets_api_key is not None and bool(
             self.moltsets_api_key.get_secret_value().strip()
         )
+
+    @property
+    def groq_configured(self) -> bool:
+        """True only when a non-blank Groq key is present."""
+        return self.groq_api_key is not None and bool(self.groq_api_key.get_secret_value().strip())
 
 
 @functools.lru_cache
