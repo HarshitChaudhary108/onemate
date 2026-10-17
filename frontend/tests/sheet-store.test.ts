@@ -168,6 +168,47 @@ describe("loadSnapshot", () => {
     expect(state.cells[cellKey("r1", "c1")]?.revision).toBe(2);
     expect(result.fetchCells).toEqual([]);
   });
+
+  it("keeps object identity for unchanged cells, rows and columns", () => {
+    const store = useSheetStore.getState();
+    store.loadSnapshot(makeSnapshot());
+    const before = useSheetStore.getState();
+    const cellRef = before.cells[cellKey("r1", "c1")];
+    const rowRef = before.rowsById.r1;
+    const colRef = before.columnsById.c1;
+    const orderRef = before.rowOrder;
+
+    // A resnapshot of identical state must reuse every object — this is
+    // what keeps a run-start resnapshot from re-rendering the grid (P7).
+    store.loadSnapshot(makeSnapshot());
+    const after = useSheetStore.getState();
+    expect(after.cells[cellKey("r1", "c1")]).toBe(cellRef);
+    expect(after.rowsById.r1).toBe(rowRef);
+    expect(after.columnsById.c1).toBe(colRef);
+    expect(after.rowOrder).toBe(orderRef);
+  });
+
+  it("replaces a cell only when revision or updated_at advanced", () => {
+    const store = useSheetStore.getState();
+    store.loadSnapshot(makeSnapshot());
+    const before = useSheetStore.getState().cells[cellKey("r1", "c1")];
+
+    // Same revision but a later updated_at: a transient write happened
+    // (claim/queue/block) — the newer row wins.
+    const changed = makeSnapshot();
+    changed.cells[0] = { ...changed.cells[0], status: "running", updated_at: "2026-10-17T12:00:05Z" };
+    store.loadSnapshot(changed);
+    const running = useSheetStore.getState().cells[cellKey("r1", "c1")];
+    expect(running).not.toBe(before);
+    expect(running?.status).toBe("running");
+
+    // A resnapshot read that predates the event — earlier updated_at at
+    // the same revision — never regresses the cell.
+    const stale = makeSnapshot();
+    stale.cells[0] = { ...stale.cells[0], status: "done", revision: 2 };
+    store.loadSnapshot(stale);
+    expect(useSheetStore.getState().cells[cellKey("r1", "c1")]?.status).toBe("running");
+  });
 });
 
 describe("applyEvents — merge by revision", () => {
@@ -192,15 +233,39 @@ describe("applyEvents — merge by revision", () => {
     expect(dropped.fetchCells).toEqual([]); // both dropped — not newer
   });
 
-  it("same-revision transient events are dropped, never regressing a cell", () => {
+  it("same-revision forward transient events apply — claim never bumps revision", () => {
+    // Backend claim_cell / mark_blocked do NOT bump the revision, so the
+    // running/blocked transitions always arrive at the cell's current
+    // revision. Applying them is the only way "running" / "blocked" can
+    // ever render (P7 cell states).
     const store = useSheetStore.getState();
     store.loadSnapshot(makeSnapshot());
     const out = store.applyEvents([
+      { type: "cell", row_id: "r2", column_id: "c1", status: "queued", revision: 0, stale: false },
       { type: "cell", row_id: "r2", column_id: "c1", status: "running", revision: 0, stale: false },
     ]);
-    // revision 0 == stored revision 0 → dropped (strict >)
     expect(out.fetchCells).toEqual([]);
-    expect(useSheetStore.getState().cells[cellKey("r2", "c1")]?.status).toBe("idle");
+    expect(useSheetStore.getState().cells[cellKey("r2", "c1")]?.status).toBe("running");
+  });
+
+  it("same-revision transient rewinds and terminal duplicates are dropped", () => {
+    const store = useSheetStore.getState();
+    store.loadSnapshot(makeSnapshot());
+    store.applyEvents([
+      { type: "cell", row_id: "r2", column_id: "c1", status: "running", revision: 0, stale: false },
+    ]);
+    // A delayed queued@0 can never legitimately follow running@0 — dropped.
+    store.applyEvents([
+      { type: "cell", row_id: "r2", column_id: "c1", status: "queued", revision: 0, stale: false },
+    ]);
+    expect(useSheetStore.getState().cells[cellKey("r2", "c1")]?.status).toBe("running");
+    // r1c1 is already done@2 — a same-revision terminal event is a
+    // duplicate, never a new write, so it is dropped without a fetch.
+    const out = store.applyEvents([
+      { type: "cell", row_id: "r1", column_id: "c1", status: "done", revision: 2, stale: false },
+    ]);
+    expect(out.fetchCells).toEqual([]);
+    expect(useSheetStore.getState().cells[cellKey("r1", "c1")]?.status).toBe("done");
   });
 
   it("an event on an unknown cell requests a detail fetch", () => {
@@ -315,7 +380,24 @@ describe("connect — subscribe, snapshot, merge, reconnect", () => {
         resolved_domain: null,
       },
     ]);
+    await vi.waitFor(() =>
+      expect(vi.mocked(deps.fetchSnapshot!).mock.calls.length).toBeGreaterThan(1),
+    );
+  });
+
+  it("a run lifecycle event triggers a resnapshot", async () => {
+    // queue_cells / cancel / stop only touch the DB — the only truthful
+    // source for queued statuses and the run denominator is a fresh read.
+    const deps = connectDeps();
+    useSheetStore.getState().connect("s1", deps);
+    const es = FakeEventSource.instances[0];
+    es.emit("open");
+    await vi.waitFor(() => expect(useSheetStore.getState().hydrated).toBe(true));
+    expect(deps.fetchSnapshot).toHaveBeenCalledTimes(1);
+
+    es.frame([{ type: "run", run_id: "run1", status: "started", reason: null }]);
     await vi.waitFor(() => expect(deps.fetchSnapshot).toHaveBeenCalledTimes(2));
+    expect(useSheetStore.getState().runStates.run1?.status).toBe("started");
   });
 
   it("a terminal cell event triggers exactly one detail fetch per revision", async () => {
@@ -323,6 +405,9 @@ describe("connect — subscribe, snapshot, merge, reconnect", () => {
       ...makeSnapshot().cells[1],
       status: "done" as const,
       revision: 1,
+      // The finish write bumps updated_at — a detail read for rev 1 always
+      // carries a later timestamp than the rev-0 idle row.
+      updated_at: "2026-10-17T12:00:01Z",
       result: { value: "synthetic", status: "unavailable" as const },
     };
     const deps = connectDeps({

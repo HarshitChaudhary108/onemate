@@ -96,6 +96,10 @@ type SheetStoreState = {
   upsertCell(cell: SheetCell): void;
   connect(sheetId: string, deps?: SheetConnectDeps): void;
   disconnect(): void;
+  /** Re-fetch the snapshot (same read as connect/reconnect). A no-op when
+   *  not connected — used after mutations (column add, row import, run
+   *  cancel) whose effects are not fully carried by events. */
+  resnapshot(): void;
 };
 
 const EMPTY: ApplyResult = { fetchCells: [], unknownRows: false };
@@ -117,6 +121,25 @@ function initialState() {
   } satisfies Partial<SheetStoreState>;
 }
 
+/** Terminal statuses — a completed write. The next completed write always
+ *  lands on a higher revision, so a same-revision terminal event can only
+ *  be a duplicate of an already-merged one. */
+const TERMINAL_STATUSES: ReadonlySet<CellStatus> = new Set(["done", "error"]);
+
+/** Lifecycle rank for transient statuses within one revision. The backend
+ *  never rewinds a transient state without a new queue cycle, and only
+ *  `idle → queued → running` and `queued → blocked` transitions exist — so
+ *  a same-revision transient event that moves the rank FORWARD is a real
+ *  transition worth applying (claim and mark_blocked do not bump the
+ *  revision, so without this the running/blocked states could never show).
+ *  Transient-after-terminal (a re-run) is likewise always forward. */
+const TRANSIENT_RANK: Record<string, number> = {
+  idle: 0,
+  queued: 1,
+  running: 2,
+  blocked: 3,
+};
+
 /** Merge one event into mutable draft maps. Events on unknown cells are
  *  reported for a detail fetch (the full cell comes back from the API);
  *  events on unknown rows flag a resnapshot (there is no row endpoint). */
@@ -134,11 +157,22 @@ function mergeEvent(
       out.fetchCells.push(event);
       return;
     }
-    // Strictly-greater revision wins. Same-revision events are dropped:
-    // within one revision only transient (idle/queued/running/blocked)
-    // states exist, and dropping a same-revision event can never regress
-    // a completed write — the next write bumps the revision anyway.
-    if (event.revision <= existing.revision) return;
+    if (event.revision < existing.revision) return;
+    if (event.revision === existing.revision) {
+      // Same revision: only a transient transition is legitimate (claim,
+      // block). Apply it only when it moves the lifecycle forward — a
+      // delayed buffered event can otherwise fake a rewind.
+      if (TERMINAL_STATUSES.has(event.status)) return;
+      if (
+        !TERMINAL_STATUSES.has(existing.status) &&
+        (TRANSIENT_RANK[event.status] ?? 0) < (TRANSIENT_RANK[existing.status] ?? 0)
+      ) {
+        return;
+      }
+      if (existing.status === event.status && existing.stale === event.stale) {
+        return;
+      }
+    }
     cells[key] = {
       ...existing,
       status: event.status,
@@ -165,11 +199,47 @@ function mergeEvent(
   runStates[event.run_id] = { status: event.status, reason: event.reason };
 }
 
+/** Identity-preserving merge for snapshot reads: every cells UPDATE bumps
+ *  `updated_at` (microsecond ISO), every completed write bumps `revision`,
+ *  so `revision + updated_at` names one exact row state. Reusing the old
+ *  object for an unchanged cell keeps per-cell zustand selectors stable —
+ *  a resnapshot must never re-render untouched cells (P7 gate). */
+function mergeSnapshotCell(
+  existing: SheetCell | undefined,
+  incoming: SheetCell,
+): SheetCell {
+  if (existing === undefined) return incoming;
+  if (existing.revision > incoming.revision) return existing;
+  if (
+    existing.revision === incoming.revision &&
+    existing.updated_at >= incoming.updated_at
+  ) {
+    return existing;
+  }
+  return incoming;
+}
+
+/** Same trick for rows/columns: `updated_at` alone identifies the row state
+ *  (every UPDATE bumps it). */
+function mergeSnapshotDated<T extends { updated_at: string }>(
+  existing: T | undefined,
+  incoming: T,
+): T {
+  return existing !== undefined && existing.updated_at === incoming.updated_at
+    ? existing
+    : incoming;
+}
+
+function sameOrder(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
 export const useSheetStore = create<SheetStoreState>()((set, get) => {
   // Not reactive: protocol bookkeeping that must never re-render anything.
   let subscription: SheetSubscription | null = null;
   let pendingEvents: SheetEvent[] = [];
   let snapshotInFlight = 0;
+  let refresher: (() => Promise<void>) | null = null;
 
   /** Merge a batch into the live state (no buffering, no guards). */
   const mergeBatch = (events: SheetEvent[]): ApplyResult => {
@@ -190,20 +260,31 @@ export const useSheetStore = create<SheetStoreState>()((set, get) => {
       const cells: Record<string, SheetCell> = {};
       for (const cell of snapshot.cells) {
         const key = cellKey(cell.row_id, cell.column_id);
-        const existing = state.cells[key];
         // A re-snapshot read can predate already-merged events — keep the
-        // newer revision, never regress.
-        cells[key] =
-          existing !== undefined && existing.revision > cell.revision ? existing : cell;
+        // newer state, never regress; identical states keep the old object.
+        cells[key] = mergeSnapshotCell(state.cells[key], cell);
       }
       const rows = [...snapshot.rows].sort((a, b) => a.position - b.position);
       const columns = [...snapshot.columns].sort((a, b) => a.position - b.position);
+      const nextRowOrder = rows.map((row) => row.id);
+      const nextColumnOrder = columns.map((col) => col.id);
       set({
         sheet: snapshot.sheet,
-        rowsById: Object.fromEntries(rows.map((row) => [row.id, row])),
-        rowOrder: rows.map((row) => row.id),
-        columnsById: Object.fromEntries(columns.map((col) => [col.id, col])),
-        columnOrder: columns.map((col) => col.id),
+        rowsById: Object.fromEntries(
+          rows.map((row) => [row.id, mergeSnapshotDated(state.rowsById[row.id], row)]),
+        ),
+        rowOrder: sameOrder(state.rowOrder, nextRowOrder)
+          ? state.rowOrder
+          : nextRowOrder,
+        columnsById: Object.fromEntries(
+          columns.map((col) => [
+            col.id,
+            mergeSnapshotDated(state.columnsById[col.id], col),
+          ]),
+        ),
+        columnOrder: sameOrder(state.columnOrder, nextColumnOrder)
+          ? state.columnOrder
+          : nextColumnOrder,
         cells,
         latestRun: snapshot.latest_run ?? null,
         hydrated: true,
@@ -228,7 +309,9 @@ export const useSheetStore = create<SheetStoreState>()((set, get) => {
     upsertCell(cell) {
       const key = cellKey(cell.row_id, cell.column_id);
       const existing = get().cells[key];
-      if (existing !== undefined && cell.revision < existing.revision) return;
+      if (existing !== undefined && mergeSnapshotCell(existing, cell) === existing) {
+        return;
+      }
       set({ cells: { ...get().cells, [key]: cell } });
     },
 
@@ -276,6 +359,7 @@ export const useSheetStore = create<SheetStoreState>()((set, get) => {
           snapshotInFlight -= 1;
         }
       };
+      refresher = refresh;
 
       subscription = subscribeSheetEvents(
         sheetId,
@@ -294,6 +378,13 @@ export const useSheetStore = create<SheetStoreState>()((set, get) => {
             const { fetchCells, unknownRows } = get().applyEvents(events);
             fetchCells.forEach(requestDetail);
             if (unknownRows) void refresh();
+            // Run lifecycle events mark state the events do not carry:
+            // queue_cells/cancel/stop only touch the DB (status + run_id
+            // changes are never published per cell), so a fresh snapshot
+            // is the only truthful way to show "queued" and the true run
+            // denominator. Identity-preserving merge keeps this free of
+            // re-renders for unchanged cells.
+            if (events.some((event) => event.type === "run")) void refresh();
           },
           onDrop: () => {
             if (isCurrent()) set({ connection: "reconnecting" });
@@ -303,9 +394,14 @@ export const useSheetStore = create<SheetStoreState>()((set, get) => {
       );
     },
 
+    resnapshot() {
+      void refresher?.();
+    },
+
     disconnect() {
       subscription?.close();
       subscription = null;
+      refresher = null;
       pendingEvents = [];
       snapshotInFlight = 0;
       set(initialState());

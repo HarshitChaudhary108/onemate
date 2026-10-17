@@ -1,9 +1,9 @@
-import Link from "next/link";
 import { Suspense } from "react";
 
+import { SheetWorkspace } from "@/components/sheet/sheet-workspace";
+
 /**
- * Sheet workspace route — thin wrapper (P6). The grid lands in P7; for
- * now this renders a placeholder that proves the route resolves.
+ * Sheet workspace route — thin wrapper (P6/P7).
  *
  * U5 (cacheComponents): without `generateStaticParams`, `params` is
  * runtime data — unknown while prerendering — so any access must sit
@@ -24,26 +24,5 @@ export default function SheetPage({ params }: PageProps<"/sheets/[sheetId]">) {
     >
       {params.then(({ sheetId }) => <SheetWorkspace sheetId={sheetId} />)}
     </Suspense>
-  );
-}
-
-/** P6 placeholder — replaced by components/sheet/sheet-workspace in P7. */
-function SheetWorkspace({ sheetId }: { sheetId: string }) {
-  return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-      <p className="text-sm text-ink-muted">
-        <Link href="/" className="text-accent underline underline-offset-2">
-          ← Sheets
-        </Link>
-      </p>
-      <h1 className="mt-4 text-2xl font-semibold tracking-tight text-ink-strong">
-        Sheet workspace
-      </h1>
-      <p className="mt-2 font-mono text-xs text-ink-muted">{sheetId}</p>
-      <p className="mt-4 max-w-2xl text-sm text-ink-muted">
-        The grid workspace is not built yet — this route only proves the sheet id
-        resolves. The interactive grid lands in the next phase.
-      </p>
-    </div>
   );
 }

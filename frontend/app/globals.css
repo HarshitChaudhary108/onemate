@@ -46,6 +46,24 @@
 
   --radius-card: 0.75rem;
   --shadow-card: 0 1px 2px rgb(22 32 46 / 0.04), 0 1px 3px rgb(22 32 46 / 0.06);
+
+  /* Grid tokens (P7) — additive only; the palettes above are untouched. */
+  --color-grid-row-hover: #f1ede6;
+  --color-grid-ring: var(--color-accent);
+  --shadow-grid-sticky-col: 6px 0 8px -6px rgb(22 32 46 / 0.18);
+  --shadow-grid-sticky-head: 0 6px 8px -6px rgb(22 32 46 / 0.18);
+
+  --animate-column-in: column-in 180ms ease-out;
+  @keyframes column-in {
+    from {
+      transform: translateX(28px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
 }
 
 @layer base {
