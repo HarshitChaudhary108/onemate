@@ -104,6 +104,8 @@ class SheetRunner:
         self._limiter = limiter or RateLimiter(qps)
         self._clock = clock or _utcnow
         self._active: dict[str, _RunContext] = {}
+        self._tasks: set[asyncio.Task[Run]] = set()
+        self._launching: set[str] = set()
         self._closing = False
 
     async def run(
@@ -119,6 +121,59 @@ class SheetRunner:
         provider 401/402) flag the run cancelled with the reason and
         return its still-queued cells to idle.
         """
+        ctx = await self._prepare(sheet_id, scope, cap=cap)
+        return await self._execute(ctx)
+
+    async def start(
+        self,
+        sheet_id: str,
+        scope: RunScope = "empty",
+        *,
+        cap: float | None = None,
+    ) -> Run | None:
+        """Queue the scope's cells and dispatch them in the background —
+        the API path for ``POST .../runs``.
+
+        Returns the run row immediately; ``None`` when a run is already
+        active (or being launched) for this sheet — one run per sheet at
+        a time, so the API can answer 409 instead of double-dispatching.
+        """
+        if self._closing or sheet_id in self._launching or self.active_run_for(sheet_id):
+            return None
+        self._launching.add(sheet_id)
+        try:
+            ctx = await self._prepare(sheet_id, scope, cap=cap)
+        finally:
+            self._launching.discard(sheet_id)
+        task = asyncio.create_task(self._execute(ctx))
+        self._tasks.add(task)
+        task.add_done_callback(self._task_done)
+        return ctx.run
+
+    def _task_done(self, task: asyncio.Task[Run]) -> None:
+        self._tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error("background run failed: %s", exc)
+
+    def active_run_for(self, sheet_id: str) -> str | None:
+        """The live run id for ``sheet_id``, if one is dispatched."""
+        for run_id, ctx in self._active.items():
+            if ctx.sheet_id == sheet_id:
+                return run_id
+        return None
+
+    async def _prepare(
+        self,
+        sheet_id: str,
+        scope: RunScope,
+        *,
+        cap: float | None,
+    ) -> _RunContext:
+        """Create the run row, queue the scope's cells and register the
+        dispatch context — shared by :meth:`run` and :meth:`start`."""
         cap_value = cap if cap is not None else self._default_cap
         run = await repo.create_run(self._db, sheet_id, cap=cap_value, reason=f"scope={scope}")
         await repo.queue_cells(self._db, sheet_id, scope, run_id=run.id)
@@ -141,22 +196,26 @@ class SheetRunner:
         }
         self._publish_run(ctx, "started")
         self._active[run.id] = ctx
+        return ctx
+
+    async def _execute(self, ctx: _RunContext) -> Run:
+        """Identity-first resolution, then dispatch to completion."""
         try:
             await self._resolve_pending_rows(ctx)
             await self._dispatch(ctx)
         finally:
-            self._active.pop(run.id, None)
+            self._active.pop(ctx.run.id, None)
             if ctx.stop_reason or ctx.cancel_requested:
                 await repo.stop_run(
                     self._db,
-                    run.id,
+                    ctx.run.id,
                     ctx.stop_reason or "cancelled",
                 )
                 self._publish_run(ctx, "stopped")
             else:
                 self._publish_run(ctx, "finished")
-        final = await repo.get_run(self._db, run.id)
-        return final if final is not None else run
+        final = await repo.get_run(self._db, ctx.run.id)
+        return final if final is not None else ctx.run
 
     async def cancel(self, run_id: str) -> bool:
         """Ask a live run to stop: queued cells return to idle once the
@@ -182,6 +241,10 @@ class SheetRunner:
             keys = [key for key, cell in ctx.cells.items() if cell.status == "running"]
             if keys:
                 await repo.requeue_cells(self._db, keys)
+        # Let background _execute tasks (from start()) run their finally
+        # blocks — run rows get their stop reason recorded.
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)
 
     # -- identity phase ----------------------------------------------------
 

@@ -15,22 +15,44 @@
 """
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from app.engine.graph import RESERVED_REFS, ColumnGraph, TemplateError
 from app.errors.sheet_error import SheetError
 from app.normalize.domain import DomainError, normalize_domain
 from app.sheets import repo
 from app.sheets.models import (
+    Cell,
+    CellRevision,
     Column,
     Depth,
     OutputType,
     Row,
     RowInput,
+    Run,
     Sheet,
+    SheetSnapshot,
     SourceScope,
 )
 
 MAX_ROWS_PER_IMPORT = 100
+
+
+@dataclass(frozen=True)
+class ColumnSpec:
+    """One column write passed to :meth:`SheetService.add_columns`.
+
+    ``strategy`` and ``depends_on`` are server-owned — the strategy is
+    always ``"research"`` and dependencies are recomputed from
+    ``prompt_template`` here, never accepted from a caller.
+    """
+
+    name: str
+    prompt_template: str
+    output_type: OutputType
+    source_scope: SourceScope
+    depth: Depth = "standard"
+    enum_options: tuple[str, ...] = ()
 
 
 class SheetService:
@@ -54,6 +76,62 @@ class SheetService:
 
     async def get_sheet(self, sheet_id: str) -> Sheet | None:
         return await repo.get_sheet(self._db, sheet_id)
+
+    async def list_sheets(self) -> list[Sheet]:
+        return await repo.list_sheets(self._db)
+
+    async def snapshot(self, sheet_id: str) -> SheetSnapshot:
+        snap = await repo.snapshot(self._db, sheet_id)
+        if snap is None:
+            raise SheetError(code="not_found", message="sheet not found")
+        return snap
+
+    async def delete_sheet(self, sheet_id: str) -> None:
+        if not await repo.delete_sheet(self._db, sheet_id):
+            raise SheetError(code="not_found", message="sheet not found")
+
+    async def run_for_sheet(self, sheet_id: str, run_id: str) -> Run:
+        run = await repo.get_run(self._db, run_id)
+        if run is None or run.sheet_id != sheet_id:
+            raise SheetError(code="not_found", message="run not found")
+        return run
+
+    async def cancel_run(self, run_id: str) -> Run:
+        """Flag a run cancelled; ``run_for_sheet`` verified it exists."""
+        run = await repo.cancel_run(self._db, run_id)
+        assert run is not None
+        return run
+
+    async def column_for_sheet(self, sheet_id: str, column_id: str) -> Column:
+        """A live column scoped to its sheet — 404 on any mismatch."""
+        column = await repo.get_column(self._db, column_id)
+        if column is None or column.deleted or column.sheet_id != sheet_id:
+            raise SheetError(code="not_found", message="column not found")
+        return column
+
+    async def cell_detail(
+        self, sheet_id: str, row_id: str, column_id: str
+    ) -> tuple[Cell, list[CellRevision]]:
+        """One cell plus its revision history, sheet-scoped — 404 on any
+        mismatch (a wrong-sheet id is indistinguishable from missing)."""
+        if await repo.get_sheet(self._db, sheet_id) is None:
+            raise SheetError(code="not_found", message="sheet not found")
+        row = next(
+            (row for row in await repo.list_rows(self._db, sheet_id) if row.id == row_id),
+            None,
+        )
+        column = await repo.get_column(self._db, column_id)
+        cell = await repo.get_cell(self._db, row_id, column_id)
+        if (
+            row is None
+            or column is None
+            or column.deleted
+            or column.sheet_id != sheet_id
+            or cell is None
+        ):
+            raise SheetError(code="not_found", message="cell not found")
+        revisions = await repo.list_cell_revisions(self._db, row_id, column_id)
+        return cell, revisions
 
     # -- rows ----------------------------------------------------------------
 
@@ -106,33 +184,71 @@ class SheetService:
         enum_options: Sequence[str] | None = None,
     ) -> Column:
         """Append one column. ``depends_on`` is derived from the template."""
+        columns = await self.add_columns(
+            sheet_id,
+            [
+                ColumnSpec(
+                    name=name,
+                    prompt_template=prompt_template,
+                    output_type=output_type,
+                    source_scope=source_scope,
+                    depth=depth,
+                    enum_options=tuple(enum_options) if enum_options else (),
+                )
+            ],
+        )
+        return columns[0]
+
+    async def add_columns(self, sheet_id: str, specs: Sequence[ColumnSpec]) -> list[Column]:
+        """Append a batch of columns atomically.
+
+        Every spec is validated against the sheet AND its siblings —
+        unique unreserved names, the column cap, enum options, and one
+        dependency graph over existing + new templates — BEFORE any column
+        is written, so a batch never half-applies at the rule level. A
+        later spec may reference an earlier new column by name.
+        """
+        if not specs:
+            raise SheetError(code="invalid_column", message="at least one column is required")
         if await repo.get_sheet(self._db, sheet_id) is None:
             raise SheetError(code="not_found", message="sheet not found")
         columns = await repo.list_columns(self._db, sheet_id)
-        if len(columns) >= self._max_columns:
+        if len(columns) + len(specs) > self._max_columns:
             raise SheetError(
                 code="column_limit",
                 message=f"a sheet holds at most {self._max_columns} columns",
             )
-        clean_name = _checked_name(name, columns)
-        _checked_enum(output_type, enum_options)
         templates = {column.name: column.prompt_template for column in columns}
-        templates[clean_name] = prompt_template
+        clean_names: list[str] = []
+        for spec in specs:
+            clean_name = _checked_name(spec.name, columns)
+            if clean_name in clean_names:
+                raise SheetError(
+                    code="name_conflict",
+                    message=f"a column named {clean_name!r} already exists",
+                )
+            _checked_enum(spec.output_type, spec.enum_options)
+            clean_names.append(clean_name)
+            templates[clean_name] = spec.prompt_template
         graph = _build_graph(templates)
-        column = await repo.create_column(
-            self._db,
-            sheet_id,
-            name=clean_name,
-            prompt_template=prompt_template,
-            output_type=output_type,
-            source_scope=source_scope,
-            depth=depth,
-            enum_options=list(enum_options) if enum_options is not None else None,
-            depends_on=graph.dependencies(clean_name),
-        )
-        for row in await repo.list_rows(self._db, sheet_id):
-            await repo.upsert_cell(self._db, row.id, column.id)
-        return column
+        rows = await repo.list_rows(self._db, sheet_id)
+        created: list[Column] = []
+        for spec, clean_name in zip(specs, clean_names, strict=True):
+            column = await repo.create_column(
+                self._db,
+                sheet_id,
+                name=clean_name,
+                prompt_template=spec.prompt_template,
+                output_type=spec.output_type,
+                source_scope=spec.source_scope,
+                depth=spec.depth,
+                enum_options=list(spec.enum_options) if spec.enum_options else None,
+                depends_on=graph.dependencies(clean_name),
+            )
+            for row in rows:
+                await repo.upsert_cell(self._db, row.id, column.id)
+            created.append(column)
+        return created
 
     async def edit_column(
         self,
