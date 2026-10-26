@@ -38,8 +38,12 @@ Field rules (conservative — unparseable or missing evidence stays
   ``verified`` with >=1 item, else ``unavailable`` with the note
   "No supported signals found in this run."
 - Decision-makers: name+role pairs extracted only when ONE sentence contains
-  both a person name (2-4 capitalized tokens) and a role keyword
-  (``extract_person_role``); merged with MoltSets people
+  both a VALIDATED person name (``extract_person_role``: 2-4 capitalized
+  tokens that pass ``app.normalize.person_name`` — locations, countries,
+  organization descriptions, category labels, titles, and the company itself
+  are rejected) and a role keyword, with the text between them reading like
+  an appositive/title connector; merged with MoltSets people whose structured
+  ``full_name`` passes the same conservative vocabulary checks
   (``provider-reported``). Dedupe key = normalized name + resolved company
   compare_key + normalized role. Merged items keep the union of sources; an
   Exa-supported item may be ``verified``, a MoltSets-only value is never
@@ -56,6 +60,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
+from app.normalize.person_name import is_person_name_candidate, is_structured_person_name
 from app.providers.types import (
     ExaHit,
     ExaSearchResult,
@@ -240,6 +245,25 @@ _ROLE_RE = re.compile(
     r"|Director)\b"
 )
 
+# Text between a name candidate and the role keyword must be empty or end
+# with a connector that can introduce an appositive/title: "was named CEO",
+# "is the CEO", "appoints X as CEO", ", VP of Engineering", "CEO: Jane Doe".
+# A gap that ends anywhere else ("with CEO John Smith", "X and CEO Y",
+# "led by Chief Strategy Officer ...", or a clause break like "; ") does not
+# tie the candidate to the role.
+_ROLE_GAP_RE = re.compile(
+    r"(?:^|[,:\u2014\u2013\-]|"
+    r"\b(?:as|is|was|were|be|been|being|named|appointed|appoints|hired|promoted|"
+    r"elected|joined|joins|serves|serving|who|also|now|new|the|a|an))\s*$",
+    re.IGNORECASE,
+)
+
+
+def _role_gap_ok(gap: str) -> bool:
+    """True when the text between a candidate and the role match reads like a
+    name/title connector (see ``_ROLE_GAP_RE``)."""
+    return _ROLE_GAP_RE.search(gap) is not None
+
 
 def extract_industry(text: str) -> str | None:
     """Extract ``"<phrase> company|platform|provider"`` after "is a/an"."""
@@ -266,34 +290,52 @@ def extract_employee_count(text: str) -> str | None:
 
 
 def extract_person_role(sentence: str, company_squash: str) -> tuple[str, str] | None:
-    """Return ``(name, role)`` when ONE sentence holds both a person name
-    (2-4 capitalized tokens) and a role keyword.
+    """Return ``(name, role)`` when ONE sentence holds both a role keyword
+    and a person-name candidate that passes validation.
 
-    The name candidate nearest before the role match is preferred, then any
-    candidate after it. Candidates that overlap the role text, equal/contain
-    the resolved company name, or are themselves role words are skipped.
+    Candidates are tried nearest-first before the role match, then leftmost
+    after it. A candidate is accepted only when ``is_person_name_candidate``
+    accepts it (shape + vocabulary + location context), it is not the
+    resolved company itself, and the text between the candidate and the role
+    reads like an appositive/title connector ("was named CEO",
+    "is the CEO", "appoints X as CEO", ", VP of Engineering", ...). A
+    location, organization description, category label, or title fragment
+    therefore never comes back as a name.
     """
     role_match = _ROLE_RE.search(sentence)
     if not role_match:
         return None
-    candidates: list[tuple[int, str]] = []
-    for match in _PERSON_NAME_RE.finditer(sentence):
-        if match.start() < role_match.end() and match.end() > role_match.start():
-            continue  # overlaps the role text
+    role = role_match.group(0)
+
+    def _accept(match: re.Match[str]) -> tuple[str, str] | None:
         name = match.group(1)
+        if not is_person_name_candidate(
+            name,
+            preceding=sentence[: match.start(1)],
+            following=sentence[match.end(1) :],
+        ):
+            return None
         name_squash = squash(name)
         if not name_squash:
-            continue
+            return None
         if company_squash and (name_squash in company_squash or company_squash in name_squash):
-            continue  # the company itself is not a person
-        if _ROLE_RE.search(name):
-            continue  # e.g. "Vice President" tokens alone
-        candidates.append((match.start(), name))
-    if not candidates:
-        return None
-    before = [c for c in candidates if c[0] < role_match.start()]
-    name = before[-1][1] if before else candidates[0][1]
-    return name, role_match.group(0)
+            return None
+        return name, role
+
+    for match in reversed(list(_PERSON_NAME_RE.finditer(sentence, 0, role_match.start()))):
+        if not _role_gap_ok(sentence[match.end(1) : role_match.start()]):
+            continue
+        pair = _accept(match)
+        if pair is not None:
+            return pair
+
+    for match in _PERSON_NAME_RE.finditer(sentence, role_match.end()):
+        if not _role_gap_ok(sentence[role_match.end() : match.start(1)]):
+            continue
+        pair = _accept(match)
+        if pair is not None:
+            return pair
+    return None
 
 
 # -- growth keywords ----------------------------------------------------------
@@ -524,7 +566,8 @@ def _decision_key(name: str, domain_key: str, role: str | None) -> tuple[str, st
 
 
 def build_decision_makers(bundle: EvidenceBundle) -> Field[list[DecisionMaker]]:
-    """Exa name+role pairs (verified) merged with MoltSets people
+    """Exa name+role pairs (verified, validated candidates only) merged with
+    MoltSets people whose ``full_name`` passes the structured name check
     (provider-reported), deduped on name + company key + role."""
     merged: dict[tuple[str, str, str], DecisionMaker] = {}
     order: list[tuple[str, str, str]] = []
@@ -564,6 +607,8 @@ def build_decision_makers(bundle: EvidenceBundle) -> Field[list[DecisionMaker]]:
     people_result = bundle.moltsets_people
     if people_result is not None:
         for person in people_result.people:
+            if not is_structured_person_name(person.full_name):
+                continue  # provider name is missing or clearly not a person
             person_name = clean_text(person.full_name, MAX_NAME_LEN)
             if not person_name:
                 continue
@@ -602,11 +647,14 @@ def build_decision_makers(bundle: EvidenceBundle) -> Field[list[DecisionMaker]]:
 
 
 def build_contact_information(bundle: EvidenceBundle) -> Field[list[ContactInfo]]:
-    """MoltSets-returned business contact details only — never inferred."""
+    """MoltSets-returned business contact details only — never inferred.
+    People whose structured name fails validation are skipped entirely."""
     people_result = bundle.moltsets_people
     items: list[ContactInfo] = []
     if people_result is not None:
         for person in people_result.people:
+            if not is_structured_person_name(person.full_name):
+                continue  # never attach contact data to a non-person name
             name = clean_text(person.full_name, MAX_NAME_LEN)
             if not name:
                 continue
