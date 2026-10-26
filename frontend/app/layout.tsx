@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Outmate — evidence-backed company research",
+  title: "Outmate — evidence-backed company sheets",
   description:
-    "Submit a company name or website and inspect an evidence-backed research report: overview, growth signals, decision-makers, and an inferred opportunity hypothesis.",
+    "Paste a company list, describe the columns you need, and inspect evidence-backed cells: every value carries its provider source, and anything the run could not support stays explicitly unavailable.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

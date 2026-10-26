@@ -25,9 +25,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.research import build_providers, router
+from app.api.sheets import router as sheets_router
 from app.config import Settings, get_settings
+from app.engine.events import HubRegistry
+from app.engine.runner import SheetRunner
+from app.errors.llm_error import LlmError
 from app.errors.provider_error import ResearchUnavailable
+from app.errors.sheet_error import SheetError
 from app.schemas.report import ErrorBody, ErrorDetail, ErrorResponse
+from app.sheets import repo as sheets_repo
+from app.sheets.db import init_db
+from app.sheets.service import SheetService
 
 logger = logging.getLogger("outmate.api")
 
@@ -58,11 +66,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        # Sheets store first: initialize the schema, then requeue cells
+        # left "running" by a crash (recovery pairs with runner.aclose).
+        await init_db(settings.sheets_db_path)
+        await sheets_repo.requeue_orphans(settings.sheets_db_path)
         providers = build_providers(settings)
         app.state.providers = providers
+        app.state.settings = settings
+        hubs = HubRegistry()
+        app.state.hubs = hubs
+        app.state.sheet_service = SheetService(
+            settings.sheets_db_path,
+            max_rows=settings.sheet_max_rows,
+            max_columns=settings.sheet_max_columns,
+        )
+        runner: SheetRunner | None = None
+        if providers.exa is not None:
+            runner = SheetRunner(
+                settings.sheets_db_path,
+                providers.exa,
+                hubs=hubs,
+                max_concurrency=settings.sheet_max_concurrency,
+                qps=float(settings.exa_max_qps),
+                default_cap=settings.run_cost_cap_usd,
+            )
+        app.state.runner = runner
         try:
             yield
         finally:
+            # Read from app.state so a substituted runner (tests) is closed too.
+            current: SheetRunner | None = app.state.runner
+            if current is not None:
+                await current.aclose()
             for provider in (providers.exa, providers.moltsets):
                 aclose = getattr(provider, "aclose", None)
                 if aclose is not None:
@@ -112,6 +147,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return JSONResponse(status_code=status_code, content=body.model_dump())
 
+    _SHEET_ERROR_STATUS = {
+        "not_found": 404,
+        "name_conflict": 409,
+        "column_referenced": 409,
+        "has_dependents": 409,
+        "confirm_required": 409,
+        "run_active": 409,
+    }
+
+    @app.exception_handler(SheetError)
+    async def sheet_error_handler(request: Request, exc: SheetError) -> JSONResponse:
+        body = ErrorResponse(
+            error=ErrorBody(
+                code=exc.code,
+                message=exc.message,
+                request_id=_request_id(request),
+            )
+        )
+        return JSONResponse(
+            status_code=_SHEET_ERROR_STATUS.get(exc.code, 422),
+            content=body.model_dump(),
+        )
+
+    @app.exception_handler(LlmError)
+    async def llm_error_handler(request: Request, exc: LlmError) -> JSONResponse:
+        status_code = 503 if exc.code == "groq_not_configured" else 502
+        body = ErrorResponse(
+            error=ErrorBody(
+                code=exc.code,
+                message=exc.message,
+                request_id=_request_id(request),
+            )
+        )
+        return JSONResponse(status_code=status_code, content=body.model_dump())
+
     @app.exception_handler(Exception)
     async def unhandled_handler(request: Request, exc: Exception) -> JSONResponse:
         request_id = _request_id(request)
@@ -135,6 +205,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(router)
+    app.include_router(sheets_router)
     return app
 
 

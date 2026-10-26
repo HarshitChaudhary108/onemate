@@ -87,7 +87,7 @@ export function DecisionMakers({ field }: { field: Report["decision_makers"] }) 
           <div className="mt-4 hidden overflow-x-auto sm:block">
             <table data-testid="decision-makers-table" className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
+                <tr className="border-b border-line text-xs font-mono uppercase tracking-wide text-ink-muted">
                   <th scope="col" className="py-2 pr-3 font-medium">
                     Name
                   </th>

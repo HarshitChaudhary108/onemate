@@ -38,7 +38,7 @@ export function OpportunityHypothesis({
           <p className="mt-3 text-sm leading-relaxed text-ink">{hypothesis.summary}</p>
           {hypothesis.rationale.length > 0 ? (
             <div className="mt-4">
-              <h3 className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+              <h3 className="text-xs font-mono font-medium uppercase tracking-wide text-ink-muted">
                 Rationale
               </h3>
               <ul className="mt-2 space-y-3">

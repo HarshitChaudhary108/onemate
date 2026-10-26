@@ -21,6 +21,9 @@ AGENTS.md
 agent_session_prompts.md
 .devin/
 
-# Test suites — not part of the published repo (fixtures included)
-backend/tests/
-docs/
+# SQLite sheets DB (local runtime artifact — WAL mode creates -wal/-shm sidecars)
+*.db
+*.db-wal
+*.db-shm
+.env
+backend/.env

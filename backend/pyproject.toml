@@ -8,11 +8,13 @@ version = "0.1.0"
 description = "Outmate prototype backend (FastAPI)"
 requires-python = ">=3.11"
 dependencies = [
+    "aiosqlite==0.22.1",
     "fastapi==0.143.0",
-    "uvicorn[standard]==0.54.0",
+    "httpx==0.28.1",
     "pydantic==2.14.0",
     "pydantic-settings==2.15.0",
-    "httpx==0.28.1",
+    "sse-starlette==3.5.0",
+    "uvicorn[standard]==0.54.0",
 ]
 
 [project.optional-dependencies]

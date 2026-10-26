@@ -20,9 +20,11 @@ from fastapi import APIRouter, Depends, Request
 from app.config import Settings
 from app.providers.exa import HttpExaProvider
 from app.providers.exa_mock import FixtureExaProvider
+from app.providers.groq import GroqProvider
+from app.providers.groq_mock import GroqMockProvider
 from app.providers.moltsets import HttpMoltSetsProvider
 from app.providers.moltsets_mock import FixtureMoltSetsProvider
-from app.providers.types import ExaProvider, MoltSetsProvider
+from app.providers.types import ExaProvider, LlmProvider, MoltSetsProvider
 from app.research.orchestrator import ResearchDeps, run_research
 from app.schemas.report import Report
 from app.schemas.research import ResearchRequest
@@ -36,6 +38,8 @@ class Providers:
     moltsets: MoltSetsProvider | None
     moltsets_mode: str
     exa_mode: str
+    groq: LlmProvider | None = None
+    groq_mode: str = "live"
 
 
 def build_providers(settings: Settings) -> Providers:
@@ -55,11 +59,23 @@ def build_providers(settings: Settings) -> Providers:
         if ms_key is not None and ms_key.get_secret_value().strip():
             moltsets = HttpMoltSetsProvider(api_key=ms_key, user_agent=settings.moltsets_user_agent)
 
+    groq: LlmProvider | None = None
+    if settings.groq_mode == "mock":
+        groq = GroqMockProvider()
+    else:
+        groq_key = settings.groq_api_key
+        if groq_key is not None and groq_key.get_secret_value().strip():
+            groq = GroqProvider(api_key=groq_key)
+        # Missing key -> None; the planner layer reports 503, never a
+        # silent mock (same rule as Exa above).
+
     return Providers(
         exa=exa,
         moltsets=moltsets,
         moltsets_mode=settings.moltsets_mode,
         exa_mode=settings.exa_mode,
+        groq=groq,
+        groq_mode=settings.groq_mode,
     )
 
 
