@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, ListPlus, OctagonX, Search } from "lucide-react";
+import { Download, ListPlus, OctagonX, Search, Upload } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
 
@@ -26,11 +26,13 @@ export function SheetToolbar({
   onCancelRun,
   onImportRows,
   onFindCompanies,
+  onPushToHubSpot,
   cancelling,
 }: {
   onCancelRun: (runId: string) => void;
   onImportRows: () => void;
   onFindCompanies: () => void;
+  onPushToHubSpot?: () => void;
   cancelling?: boolean;
 }) {
   const sheet = useSheetStore((state) => state.sheet);
@@ -143,6 +145,17 @@ export function SheetToolbar({
           <ListPlus aria-hidden="true" className="h-3.5 w-3.5" />
           Import rows
         </button>
+
+        {onPushToHubSpot !== undefined ? (
+          <button
+            type="button"
+            onClick={onPushToHubSpot}
+            className="inline-flex items-center gap-1.5 rounded-card border border-line-strong bg-surface px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface-muted"
+          >
+            <Upload aria-hidden="true" className="h-3.5 w-3.5" />
+            Push to HubSpot
+          </button>
+        ) : null}
 
         {sheet !== null ? (
           <a

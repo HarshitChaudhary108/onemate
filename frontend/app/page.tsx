@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { ErrorAlert } from "@/components/error-alert";
-import { createSheet, listSheets, type SheetResult } from "@/lib/api/sheets";
+import { createSheet, deleteSheet, listSheets, type SheetResult } from "@/lib/api/sheets";
 import type { Sheet } from "@/lib/schema/sheet";
 
 /**
@@ -74,6 +74,9 @@ export default function SheetsHome() {
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,6 +117,33 @@ export default function SheetsHome() {
     [name, creating, router],
   );
 
+  const handleDelete = useCallback(
+    async (sheetId: string) => {
+      if (deletingId !== null) return;
+      setDeletingId(sheetId);
+      setDeleteError(null);
+      const result = await deleteSheet(sheetId);
+      setDeletingId(null);
+      if (result.kind === "ok") {
+        setConfirmDeleteId(null);
+        setState((prev) =>
+          prev.kind === "ready"
+            ? { kind: "ready", sheets: prev.sheets.filter((s) => s.id !== sheetId) }
+            : prev,
+        );
+        return;
+      }
+      setDeleteError(
+        result.kind === "api_error"
+          ? result.message
+          : result.kind === "network"
+            ? NETWORK_MESSAGE
+            : INVALID_RESPONSE_MESSAGE,
+      );
+    },
+    [deletingId],
+  );
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
       <header className="mb-6">
@@ -124,6 +154,10 @@ export default function SheetsHome() {
           stays explicitly unavailable. For a single deep profile, use{" "}
           <Link href="/research" className="text-accent underline underline-offset-2">
             the research tool
+          </Link>
+          . Connect a CRM on{" "}
+          <Link href="/integrations" className="text-accent underline underline-offset-2">
+            the integrations page
           </Link>
           .
         </p>
@@ -172,6 +206,12 @@ export default function SheetsHome() {
           />
         ) : null}
 
+        {deleteError !== null ? (
+          <p role="alert" className="mb-2 text-sm text-danger-ink">
+            {deleteError}
+          </p>
+        ) : null}
+
         {state.kind === "ready" && state.sheets.length === 0 ? (
           <p className="text-sm text-ink-muted">
             No sheets yet — create one above to get started.
@@ -181,16 +221,46 @@ export default function SheetsHome() {
         {state.kind === "ready" && state.sheets.length > 0 ? (
           <ul className="divide-y divide-line rounded-card border border-line bg-surface shadow-card">
             {state.sheets.map((sheet) => (
-              <li key={sheet.id}>
+              <li key={sheet.id} className="flex items-stretch">
                 <Link
                   href={`/sheets/${sheet.id}`}
-                  className="flex items-center justify-between px-4 py-3 text-sm text-ink transition-colors hover:bg-surface-muted"
+                  className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3 text-sm text-ink transition-colors hover:bg-surface-muted"
                 >
-                  <span className="font-medium text-ink-strong">{sheet.name}</span>
-                  <span className="font-mono text-xs text-ink-muted">
+                  <span className="truncate font-medium text-ink-strong">{sheet.name}</span>
+                  <span className="shrink-0 font-mono text-xs text-ink-muted">
                     {new Date(sheet.updated_at).toLocaleString()}
                   </span>
                 </Link>
+                <div className="flex shrink-0 items-center gap-1.5 pr-2">
+                  {confirmDeleteId === sheet.id ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void handleDelete(sheet.id)}
+                        disabled={deletingId !== null}
+                        className="rounded-card border border-danger-line bg-danger-bg px-2 py-1 text-xs font-medium text-danger-ink disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {deletingId === sheet.id ? "Deleting…" : "Confirm delete"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="rounded-card border border-line-strong bg-surface px-2 py-1 text-xs font-medium text-ink hover:bg-surface-muted"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label={`Delete ${sheet.name}`}
+                      onClick={() => setConfirmDeleteId(sheet.id)}
+                      className="rounded-card border border-line-strong bg-surface px-2 py-1 text-xs font-medium text-ink hover:bg-surface-muted"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>

@@ -29,6 +29,18 @@ class Settings(BaseSettings):
     exa_max_qps: int = 5
     run_cost_cap_usd: float = 1.00
     cors_origins: str = "http://localhost:3000"
+    hubspot_client_id: SecretStr | None = None
+    hubspot_client_secret: SecretStr | None = None
+    hubspot_redirect_uri: str = "http://localhost:8000/api/integrations/hubspot/callback"
+    hubspot_scopes: str = (
+        "crm.objects.companies.read crm.objects.companies.write "
+        "crm.objects.contacts.read crm.objects.contacts.write "
+        "crm.schemas.companies.write"
+    )
+    hubspot_token_key: SecretStr | None = None  # Fernet key (urlsafe base64, 32B)
+    hubspot_mode: Literal["live", "mock", "off"] = "live"
+    hubspot_post_connect_url: str = "http://localhost:3000/integrations"
+    hubspot_max_qps: int = 5  # token bucket, same pattern as exa_max_qps
 
     @property
     def cors_origins_list(self) -> list[str]:
@@ -51,6 +63,18 @@ class Settings(BaseSettings):
     def groq_configured(self) -> bool:
         """True only when a non-blank Groq key is present."""
         return self.groq_api_key is not None and bool(self.groq_api_key.get_secret_value().strip())
+
+    @property
+    def hubspot_configured(self) -> bool:
+        """True only when client id + secret + token key are all non-blank."""
+        return all(
+            value is not None and bool(value.get_secret_value().strip())
+            for value in (
+                self.hubspot_client_id,
+                self.hubspot_client_secret,
+                self.hubspot_token_key,
+            )
+        )
 
 
 @functools.lru_cache

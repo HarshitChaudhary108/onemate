@@ -14,11 +14,70 @@ user data exists).
 
 import aiosqlite
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _BUSY_TIMEOUT_MS = 5000
 
-_DDL = """
+# Schema v2 (integration plan §5.5): provider-keyed integration tables.
+# Kept as a separate constant so the v1 → v2 migration branch applies
+# exactly this DDL; fresh databases get it appended to ``_DDL`` below.
+_DDL_V2 = """
+CREATE TABLE IF NOT EXISTS integration_connections (
+    provider TEXT PRIMARY KEY,              -- 'hubspot'
+    portal_id TEXT,
+    access_token_enc TEXT NOT NULL,         -- Fernet-encrypted
+    refresh_token_enc TEXT NOT NULL,
+    token_expires_at TEXT NOT NULL,
+    scopes TEXT NOT NULL,
+    mock INTEGER NOT NULL DEFAULT 0,
+    connected_at TEXT NOT NULL,
+    last_sync_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS oauth_states (
+    state TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    expires_at TEXT NOT NULL,               -- now + 10 min; consumed = deleted
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS integration_links (
+    provider TEXT NOT NULL,
+    object_type TEXT NOT NULL,              -- 'company' | 'contact'
+    remote_id TEXT NOT NULL,
+    sheet_id TEXT REFERENCES sheets(id) ON DELETE CASCADE,
+    row_id TEXT REFERENCES "rows"(id) ON DELETE CASCADE,  -- NULL for contacts (snapshot-only)
+    properties_json TEXT NOT NULL,          -- remote property snapshot for refresh diffs
+    remote_updated_at TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (provider, object_type, remote_id)
+);
+
+CREATE TABLE IF NOT EXISTS integration_field_map (
+    provider TEXT NOT NULL,
+    object_type TEXT NOT NULL,
+    column_name TEXT NOT NULL,              -- Outmate column name
+    remote_property TEXT NOT NULL,          -- 'outmate_*' only (enforced in mapping.py)
+    direction TEXT NOT NULL DEFAULT 'push', -- 'push' | 'pull' | 'both'
+    owner TEXT NOT NULL DEFAULT 'outmate',  -- 'outmate' | 'hubspot'
+    PRIMARY KEY (provider, object_type, column_name)
+);
+
+CREATE TABLE IF NOT EXISTS integration_push_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    row_id TEXT NOT NULL,
+    remote_id TEXT NOT NULL,
+    property TEXT NOT NULL,
+    value TEXT,
+    status TEXT NOT NULL,                   -- 'ok' | 'error'
+    error TEXT,
+    created_at TEXT NOT NULL
+);
+"""
+
+_DDL = (
+    """
 CREATE TABLE IF NOT EXISTS sheets (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -104,6 +163,8 @@ CREATE TABLE IF NOT EXISTS cell_revisions (
 
 CREATE INDEX IF NOT EXISTS idx_cells_status ON cells(status);
 """
+    + _DDL_V2
+)
 
 
 class SchemaVersionError(RuntimeError):
@@ -126,8 +187,10 @@ async def init_db(db_path: str) -> None:
     """Create the schema if needed and stamp ``user_version``.
 
     Idempotent: a database already at :data:`SCHEMA_VERSION` is untouched,
-    a fresh database (``user_version`` 0) receives the full DDL, and any
-    other version is refused with :class:`SchemaVersionError`.
+    a fresh database (``user_version`` 0) receives the full DDL, a database
+    at ``user_version`` 1 is migrated by applying only the v2 DDL and
+    re-stamping, and any other version is refused with
+    :class:`SchemaVersionError`.
     """
     conn = await aiosqlite.connect(db_path, isolation_level=None)
     try:
@@ -135,10 +198,15 @@ async def init_db(db_path: str) -> None:
         version = await _user_version(conn)
         if version == SCHEMA_VERSION:
             return
+        if version == 1:
+            await conn.executescript(_DDL_V2)
+            await conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            return
         if version != 0:
             raise SchemaVersionError(
                 f"sheets DB at {db_path!r} has user_version={version}, "
-                f"expected 0 (new) or {SCHEMA_VERSION}; refusing to initialize"
+                f"expected 0 (new), 1 (migratable) or {SCHEMA_VERSION}; "
+                "refusing to initialize"
             )
         await conn.executescript(_DDL)
         await conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

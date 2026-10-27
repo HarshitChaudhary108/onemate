@@ -9,6 +9,8 @@ description = "Outmate prototype backend (FastAPI)"
 requires-python = ">=3.11"
 dependencies = [
     "aiosqlite==0.22.1",
+    "Authlib==1.9.1",
+    "cryptography==50.0.2",
     "fastapi==0.143.0",
     "httpx==0.28.1",
     "pydantic==2.14.0",
@@ -43,3 +45,7 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.mypy]
 strict = true
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "authlib.*"
+ignore_missing_imports = true

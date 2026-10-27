@@ -7,6 +7,7 @@ import { CellInspector } from "@/components/sheet/cell-inspector";
 import { GenerateRowsDialog } from "@/components/sheet/generate-rows-dialog";
 import { ImportRowsDialog } from "@/components/sheet/import-rows-dialog";
 import { PromptBar, type PromptBarApi } from "@/components/sheet/prompt-bar";
+import { PushHubSpotDialog } from "@/components/sheet/push-hubspot-dialog";
 import { RowProfileSheet } from "@/components/sheet/row-profile-sheet";
 import { SheetGrid, type SheetGridApi } from "@/components/sheet/sheet-grid";
 import { SheetToolbar } from "@/components/sheet/sheet-toolbar";
@@ -39,6 +40,7 @@ export function SheetWorkspace({ sheetId }: { sheetId: string }) {
   const [profileRowId, setProfileRowId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [pushOpen, setPushOpen] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [plan, setPlan] = useState<PlanResult | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
@@ -190,6 +192,7 @@ export function SheetWorkspace({ sheetId }: { sheetId: string }) {
         onCancelRun={(runId) => void handleCancelRun(runId)}
         onImportRows={() => setImportOpen(true)}
         onFindCompanies={() => setGenerateOpen(true)}
+        onPushToHubSpot={() => setPushOpen(true)}
         cancelling={cancelling}
       />
 
@@ -280,6 +283,10 @@ export function SheetWorkspace({ sheetId }: { sheetId: string }) {
           onClose={() => setGenerateOpen(false)}
           onGenerated={handleImported}
         />
+      ) : null}
+
+      {pushOpen ? (
+        <PushHubSpotDialog sheetId={sheetId} onClose={() => setPushOpen(false)} />
       ) : null}
     </div>
   );

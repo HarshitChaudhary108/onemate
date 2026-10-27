@@ -19,6 +19,7 @@ coverage/
 # Agentic workflow docs and tooling — not part of the published repo
 AGENTS.md
 agent_session_prompts.md
+prompt.md
 .devin/
 
 # SQLite sheets DB (local runtime artifact — WAL mode creates -wal/-shm sidecars)

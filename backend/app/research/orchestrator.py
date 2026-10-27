@@ -12,10 +12,14 @@ Identity resolution rules (unit-tested, docstring is binding):
 - Hit hosts are compared with the same normalization as input
   (``compare_key``: lowercase, ``www.`` stripped). A hit "domain-matches"
   when its host key equals the key or ends with ``"." + key``.
-- Name matching: the supplied name and the hit's title / first host label
-  are squashed (casefolded, non-alphanumerics stripped). A hit
-  "name-matches" when the squashed name is a substring of the squashed
-  title or of the first host label.
+- Name matching: the supplied name and the hit's title are squashed
+  (casefolded, non-alphanumerics stripped); a hit "name-matches" when the
+  squashed name is a substring of the squashed title OR of a non-TLD host
+  label, OR when every distinctive name token — legal-form words like
+  "LLC"/"Inc" never count — appears inside a non-TLD host label. Host
+  evidence matters because a product or subsidiary page on the claimed
+  domain (``store.google.com`` titled "Nest Labs") still corroborates the
+  name↔domain pair through its host labels.
 - Domain supplied (with or without a name): ``resolved`` iff >=1 hit
   domain-matches AND (no name was supplied OR >=1 domain-matching hit also
   name-matches). Domain-matching hits that all fail the name check ->
@@ -51,6 +55,7 @@ adapters are the single retry boundary: no retry logic lives here.
 
 import asyncio
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -147,6 +152,44 @@ def _clean_title_name(title: str | None) -> str | None:
     return name or None
 
 
+_LEGAL_FORM_TOKENS = frozenset(
+    {
+        "ag",
+        "bv",
+        "co",
+        "company",
+        "corp",
+        "corporation",
+        "gmbh",
+        "group",
+        "holdings",
+        "inc",
+        "limited",
+        "llc",
+        "llp",
+        "lp",
+        "ltd",
+        "nv",
+        "plc",
+        "pty",
+        "sa",
+        "sarl",
+    }
+)
+"""Entity-form words that never decide a name match — "Google LLC" and
+"Google" are the same claim."""
+
+
+def _name_tokens(name: str) -> list[str]:
+    """The name's distinctive tokens: alnum runs ≥ 2 chars minus
+    legal-form words."""
+    return [
+        token
+        for token in re.findall(r"[a-z0-9]+", name.casefold())
+        if len(token) > 1 and token not in _LEGAL_FORM_TOKENS
+    ]
+
+
 def _name_matches_hit(name: str, hit: ExaHit) -> bool:
     target = squash(name)
     if not target:
@@ -154,9 +197,18 @@ def _name_matches_hit(name: str, hit: ExaHit) -> bool:
     if target in squash(hit.title):
         return True
     host_key = hit_host_key(hit.url)
-    if host_key:
-        return target in squash(host_key.split(".", 1)[0])
-    return False
+    if host_key is None:
+        return False
+    labels = host_key.split(".")
+    # Every label except the trailing TLD is name evidence — for
+    # "store.google.com" that means "store" AND "google".
+    candidates = [squash(label) for label in (labels[:-1] or labels)]
+    if any(target in label for label in candidates):
+        return True
+    tokens = _name_tokens(name)
+    if not tokens:
+        return False
+    return all(any(token in label for label in candidates) for token in tokens)
 
 
 def resolve_identity(

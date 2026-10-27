@@ -436,8 +436,12 @@ Shared by the report pipeline and sheet rows (the same `resolve_identity`):
 - **Domain supplied:** resolved iff ≥ 1 Exa hit's host matches the normalized
   domain (subdomains count, `www.` ignored). If a name is supplied too, a
   domain-matching hit must also name-match — otherwise ambiguous ("supplied
-  name and domain do not agree"). No domain-matching hit → unresolved ("no
-  evidence for this domain").
+  name and domain do not agree"). A hit name-matches when the squashed name
+  appears in the hit title or a non-TLD host label, or when every distinctive
+  name token (legal-form words like "LLC"/"Inc" never count) appears inside a
+  non-TLD host label — so a product page on `store.google.com` still
+  corroborates "Google LLC" + `google.com` through its host. No
+  domain-matching hit → unresolved ("no evidence for this domain").
 - **Bounded identity fallback:** when the identity search finds no pages on
   the requested domain, exactly one broader fallback search runs — same
   subject and domain scoping (`includeDomains`), with the `company` category

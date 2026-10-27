@@ -19,19 +19,23 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+from cryptography.fernet import Fernet
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.integrations import router as integrations_router
 from app.api.research import build_providers, router
 from app.api.sheets import router as sheets_router
 from app.config import Settings, get_settings
 from app.engine.events import HubRegistry
 from app.engine.runner import SheetRunner
+from app.errors.integration_error import IntegrationError
 from app.errors.llm_error import LlmError
 from app.errors.provider_error import ResearchUnavailable
 from app.errors.sheet_error import SheetError
+from app.integrations.hubspot.service import IntegrationService
 from app.schemas.report import ErrorBody, ErrorDetail, ErrorResponse
 from app.sheets import repo as sheets_repo
 from app.sheets.db import init_db
@@ -43,6 +47,23 @@ logger = logging.getLogger("outmate.api")
 def _request_id(request: Request) -> str:
     rid = getattr(request.state, "request_id", None)
     return rid if isinstance(rid, str) and rid else uuid.uuid4().hex
+
+
+def _hubspot_fernet(settings: Settings) -> Fernet | None:
+    """The token cipher from ``HUBSPOT_TOKEN_KEY`` — ``None`` when unset.
+
+    An invalid key is a configuration error, but it must not take every
+    route down at boot: log and run with no cipher — token operations
+    then report ``hubspot_not_configured`` honestly.
+    """
+    key = settings.hubspot_token_key
+    if key is None or not key.get_secret_value().strip():
+        return None
+    try:
+        return Fernet(key.get_secret_value())
+    except ValueError:
+        logger.warning("HUBSPOT_TOKEN_KEY is not a valid Fernet key; HubSpot token storage is off")
+        return None
 
 
 def _validation_detail(error: dict[str, Any]) -> ErrorDetail:
@@ -91,6 +112,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 default_cap=settings.run_cost_cap_usd,
             )
         app.state.runner = runner
+        app.state.integration_service = IntegrationService(
+            settings.sheets_db_path, settings, _hubspot_fernet(settings), app.state.sheet_service
+        )
         try:
             yield
         finally:
@@ -98,6 +122,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             current: SheetRunner | None = app.state.runner
             if current is not None:
                 await current.aclose()
+            integration: IntegrationService | None = app.state.integration_service
+            if integration is not None:
+                await integration.aclose()
             for provider in (providers.exa, providers.moltsets):
                 aclose = getattr(provider, "aclose", None)
                 if aclose is not None:
@@ -170,6 +197,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             content=body.model_dump(),
         )
 
+    _INTEGRATION_ERROR_STATUS = {
+        "hubspot_not_configured": 503,
+        "hubspot_not_connected": 409,
+        "import_conflict": 409,
+        "oauth_state_mismatch": 422,
+    }
+
+    @app.exception_handler(IntegrationError)
+    async def integration_error_handler(request: Request, exc: IntegrationError) -> JSONResponse:
+        body = ErrorResponse(
+            error=ErrorBody(
+                code=exc.code,
+                message=exc.message,
+                request_id=_request_id(request),
+            )
+        )
+        return JSONResponse(
+            status_code=_INTEGRATION_ERROR_STATUS.get(exc.code, 502),
+            content=body.model_dump(),
+        )
+
     @app.exception_handler(LlmError)
     async def llm_error_handler(request: Request, exc: LlmError) -> JSONResponse:
         status_code = 503 if exc.code == "groq_not_configured" else 502
@@ -206,6 +254,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(router)
     app.include_router(sheets_router)
+    app.include_router(integrations_router)
     return app
 
 
